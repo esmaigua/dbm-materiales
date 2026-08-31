@@ -1,0 +1,14 @@
+# Secretos (¡NUNCA SUBIR ESTO!)
+.env
+backend/.env
+frontend/.env
+
+# Dependencias de Python (Backend)
+backend/venv/
+backend/__pycache__/
+*.pyc
+
+# Dependencias de Node (Frontend)
+frontend/node_modules/
+frontend/dist/
+.DS_Store

@@ -1,0 +1,10 @@
+{
+  "description": "Generates prompt prototypes quickly to assist users in creating effective prompts for various applications, enhancing productivity and creativity.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
