@@ -15,7 +15,7 @@ const productRules = [
 ];
 
 export default function Proformas() {
-  const { role, isAdmin, toggleRole } = useAuth();
+  const { role, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('cotizador'); 
   const [useTemplate, setUseTemplate] = useState(true); // Toggle para usar o no la fórmula PVC
   const [area, setArea] = useState(30);
@@ -146,9 +146,6 @@ export default function Proformas() {
       <div className="max-w-7xl mx-auto mb-4 print:hidden">
         <div className="bg-white rounded-xl shadow p-4 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
           <div className="flex space-x-2">
-            <button onClick={toggleRole} className="ml-4 px-4 py-2 bg-red-500 text-white font-bold rounded-lg">
-              👀 Simular vista: {role}
-            </button>
             <button onClick={() => setActiveTab('cotizador')} className={`px-6 py-2 rounded-lg font-bold transition-colors ${activeTab === 'cotizador' ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>1. Cotizador / Editor</button>
             <button onClick={() => setActiveTab('proforma')} className={`px-6 py-2 rounded-lg font-bold transition-colors ${activeTab === 'proforma' ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>2. Configurar e Imprimir</button>
           </div>

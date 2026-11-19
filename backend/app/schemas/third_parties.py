@@ -36,3 +36,23 @@ class CustomerResponse(CustomerBase):
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+class CustomerUpdate(BaseModel):
+    document_number: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+
+class CustomerStatusUpdate(BaseModel):
+    is_active: bool
+
+class SupplierUpdate(BaseModel):
+    document_number: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+
+class SupplierStatusUpdate(BaseModel):
+    is_active: bool

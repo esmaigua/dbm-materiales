@@ -40,3 +40,14 @@ class ProductResponse(ProductBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class ProductUpdate(BaseModel):
+    sku: str
+    name: str
+    price: float
+    cost: float
+    stock_minimo: int
+    category_id: Optional[str] = None
+
+class ProductStatusUpdate(BaseModel):
+    is_active: bool

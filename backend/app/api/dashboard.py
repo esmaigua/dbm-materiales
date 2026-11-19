@@ -55,6 +55,33 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     """)
     top_productos = [{"nombre": row[0], "unidades": float(row[1])} for row in db.execute(top_query).fetchall()]
 
+    # 8. Historial de Ventas vs Compras (Últimos 6 meses)
+    meses_nombres = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+    historial = []
+    
+    today = datetime.now()
+    current_month = today.month
+    current_year = today.year
+    
+    for i in range(5, -1, -1):
+        m = current_month - i
+        y = current_year
+        if m <= 0:
+            m += 12
+            y -= 1
+            
+        v_query = text("SELECT COALESCE(SUM(total), 0) FROM sales WHERE EXTRACT(MONTH FROM created_at) = :month AND EXTRACT(YEAR FROM created_at) = :year AND status = 'COMPLETED'")
+        v_mes = db.execute(v_query, {"month": m, "year": y}).scalar() or 0
+        
+        c_query = text("SELECT COALESCE(SUM(total), 0) FROM purchases WHERE EXTRACT(MONTH FROM created_at) = :month AND EXTRACT(YEAR FROM created_at) = :year AND status = 'COMPLETED'")
+        c_mes = db.execute(c_query, {"month": m, "year": y}).scalar() or 0
+        
+        historial.append({
+            "name": meses_nombres[m - 1],
+            "ventas": float(v_mes),
+            "compras": float(c_mes)
+        })
+
     return {
         "kpis": {
             "ventasHoy": float(ventas_hoy),
@@ -66,5 +93,6 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
             "proformasPendientes": proformas_pendientes
         },
         "alertas": alertas,
-        "productosMasVendidos": top_productos
+        "productosMasVendidos": top_productos,
+        "historial": historial
     }

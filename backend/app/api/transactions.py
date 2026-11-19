@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from decimal import Decimal
-
+from sqlalchemy import desc
 from app.core.database import get_db
 from app.models.transactions import Purchase, PurchaseItem, InventoryMovement
 from app.models.catalog import Product
 from app.schemas.transactions import PurchaseCreate, PurchaseResponse
 from app.models.transactions import Sale, SaleItem, Proforma, ProformaItem
 from app.schemas.transactions import SaleCreate, SaleResponse, ProformaCreate, ProformaResponse
-
+from app.models.third_parties import Customer
 router = APIRouter()
 
 @router.post("/purchases", response_model=PurchaseResponse)
@@ -69,6 +69,32 @@ def create_purchase(purchase_data: PurchaseCreate, db: Session = Depends(get_db)
     db.refresh(new_purchase)
 
     return new_purchase
+
+# --- ENDPOINT PARA OBTENER EL HISTORIAL DE VENTAS ---
+@router.get("/sales")
+def get_sales(db: Session = Depends(get_db)):
+    # Traemos las ventas ordenadas por fecha (las más nuevas primero)
+    sales = db.query(Sale).order_by(desc(Sale.created_at)).all()
+    
+    # Formateamos la respuesta para que el frontend la lea fácil
+    result = []
+    for sale in sales:
+        # Buscamos el nombre del cliente
+        customer_name = "Consumidor Final"
+        if sale.customer_id:
+            customer = db.query(Product).filter(Product.id == sale.customer_id).first() # Ajuste temporal si no importaste Customer
+            # Nota: Asegúrate de importar 'Customer' de app.models.third_parties al inicio del archivo
+            # customer = db.query(Customer).filter(Customer.id == sale.customer_id).first()
+            # if customer: customer_name = customer.name
+            
+        result.append({
+            "id": sale.id,
+            "created_at": sale.created_at,
+            "total": float(sale.total),
+            "customer_id": sale.customer_id,
+            # Si lograste importar Customer, descomenta la lógica de arriba y envía el nombre
+        })
+    return result
 
 # --- ENDPOINT DE VENTAS ---
 @router.post("/sales", response_model=SaleResponse)
@@ -165,3 +191,67 @@ def create_proforma(proforma_data: ProformaCreate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(new_proforma)
     return new_proforma
+
+@router.get("/sales/{sale_id}/details")
+def get_sale_details(sale_id: str, db: Session = Depends(get_db)):
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+        
+    items = db.query(SaleItem).filter(SaleItem.sale_id == sale_id).all()
+    customer = db.query(Customer).filter(Customer.id == sale.customer_id).first()
+    
+    cart_items = []
+    for item in items:
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        cart_items.append({
+            "cantidad": item.quantity,
+            "producto": {
+                "name": product.name if product else "Producto no disponible",
+                "price": item.unit_price
+            }
+        })
+        
+    return {
+        "venta": {
+            "id": sale.id, 
+            "created_at": sale.created_at, 
+            "total": float(sale.total)
+        },
+        "cliente": {
+            "name": customer.name if customer else "Consumidor Final", 
+            "document_number": customer.tax_id if customer else "9999999999"
+        },
+        "carrito": cart_items
+    }
+
+@router.get("/movements")
+def get_inventory_movements(db: Session = Depends(get_db)):
+    # Traemos los últimos 150 movimientos ordenados por el más reciente
+    movements = db.query(
+        InventoryMovement.id,
+        InventoryMovement.created_at,
+        InventoryMovement.movement_type,
+        InventoryMovement.quantity,
+        InventoryMovement.reference_id,
+        InventoryMovement.notes,
+        Product.name.label("product_name"),
+        Product.sku.label("product_sku")
+    ).join(Product, InventoryMovement.product_id == Product.id)\
+     .order_by(desc(InventoryMovement.created_at)).limit(150).all()
+
+    result = []
+    for m in movements:
+        result.append({
+            "id": m.id,
+            "date": m.created_at,
+            "type": m.movement_type, # 'PURCHASE' o 'SALE'
+            "quantity": float(m.quantity),
+            "reference_id": m.reference_id,
+            "notes": m.notes,
+            "product_name": m.product_name,
+            "product_sku": m.product_sku
+        })
+        
+    return result
+

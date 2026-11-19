@@ -1,16 +1,10 @@
-import { useState, useEffect } from 'react';
-import api from '../services/api'; // Asegúrate de que esta ruta coincida con donde creaste api.ts
-
-// 1. INTERFACES (Definen la forma de los datos reales de tu backend)
-interface Category {
-  id: string;
-  name: string;
-  description: string;
-}
+import { useState, useEffect, useRef } from 'react';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import * as XLSX from 'xlsx';
 
 interface Product {
   id: string;
-  category_id: string;
   sku: string;
   name: string;
   description: string;
@@ -19,231 +13,281 @@ interface Product {
   stock_actual: number;
   stock_minimo: number;
   is_service: boolean;
+  is_active: boolean;
 }
 
-const unidades = ['Unidad', 'Metro', 'Metro cuadrado', 'Caja', 'Paquete'];
-
 export default function Products() {
-  // 2. ESTADOS PARA DATOS REALES
+  const { isAdmin } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
   
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [showNew, setShowNew] = useState(false);
-  const [selectedCat, setSelectedCat] = useState('Todos');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  
+  // Estado para la importación
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [formData, setFormData] = useState({
+    sku: '', name: '', description: 'Sin descripción', price: 0, cost: 0, stock_minimo: 5, is_service: false
+  });
 
-  // 3. CARGAR DATOS DESDE EL BACKEND
-  const loadData = async () => {
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const fetchProducts = async () => {
     try {
-      const [prodsRes, catsRes] = await Promise.all([
-        api.get('/products'),
-        api.get('/categories')
-      ]);
-      setProducts(prodsRes.data);
-      setCategories(catsRes.data);
+      setLoading(true);
+      const response = await api.get('/products');
+      setProducts(response.data);
     } catch (error) {
-      console.error("Error cargando datos:", error);
-      alert("Error conectando al servidor");
+      console.error("Error cargando productos:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  // Función auxiliar para obtener el nombre de la categoría
-  const getCategoryName = (id: string) => categories.find(c => c.id === id)?.name || 'Sin categoría';
-
-  // Filtrar productos
-  const filteredProducts = selectedCat === 'Todos' 
-    ? products 
-    : products.filter(p => getCategoryName(p.category_id) === selectedCat);
-
-  if (loading) return <div className="p-10 text-center font-bold text-slate-500">Cargando catálogo DBM...</div>;
-
-  return (
-    <div className="p-6 space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display font-bold text-2xl text-slate-800">Catálogo de Productos</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Base de datos en tiempo real (PostgreSQL)</p>
-        </div>
-        <button
-          onClick={() => { setShowNew(true); setSelectedProduct(null); }}
-          className="px-4 py-2 rounded-lg text-white text-sm font-display font-semibold"
-          style={{ background: '#ED871B' }}
-        >
-          + Nuevo producto
-        </button>
-      </div>
-
-      <div className="grid grid-cols-3 gap-5" style={{ minHeight: '70vh' }}>
-        {/* Product list */}
-        <div className="col-span-1 bg-white rounded-xl flex flex-col overflow-hidden" style={{ border: '1px solid #E5E7EB' }}>
-          
-          {/* Filtros Categorías */}
-          <div className="flex overflow-x-auto gap-1 px-3 py-2 border-b" style={{ borderColor: '#E5E7EB' }}>
-            {['Todos', ...categories.map(c => c.name)].map((c) => (
-              <button
-                key={c}
-                className="px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors"
-                style={{
-                  background: selectedCat === c ? '#1D2647' : '#F0F2F5',
-                  color: selectedCat === c ? '#fff' : '#64748B',
-                }}
-                onClick={() => setSelectedCat(c)}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-
-          {/* Lista de productos */}
-          <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
-            {filteredProducts.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => { setSelectedProduct(p); setShowNew(false); }}
-                className="w-full flex items-start gap-3 p-3 text-left transition-colors hover:bg-orange-50"
-                style={{
-                  background: selectedProduct?.id === p.id ? 'rgba(237,135,27,0.06)' : 'transparent',
-                  borderLeft: selectedProduct?.id === p.id ? '3px solid #ED871B' : '3px solid transparent',
-                }}
-              >
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm flex-shrink-0" style={{ background: '#F0F2F5' }}>📦</div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm text-slate-800 truncate">{p.name}</div>
-                  <div className="font-mono text-xs text-slate-400">{p.sku}</div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ background: p.stock_actual <= p.stock_minimo ? '#FEF2F2' : '#F0FDF4', color: p.stock_actual <= p.stock_minimo ? '#DC2626' : '#16a34a' }}>
-                      Stock: {p.stock_actual}
-                    </span>
-                    <span className="font-mono text-xs font-bold" style={{ color: '#ED871B' }}>${Number(p.price).toFixed(2)}</span>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Detail / New form */}
-        <div className="col-span-2">
-          {!selectedProduct && !showNew ? (
-            <div className="h-full flex items-center justify-center bg-white rounded-xl" style={{ border: '1px solid #E5E7EB' }}>
-              <div className="text-center text-slate-300">
-                <div className="text-5xl mb-3">📦</div>
-                <div className="font-display text-slate-400">Selecciona un producto</div>
-              </div>
-            </div>
-          ) : showNew ? (
-            <NewProductForm categories={categories} onCancel={() => setShowNew(false)} onSaved={loadData} />
-          ) : selectedProduct ? (
-            <ProductDetail product={selectedProduct} categoryName={getCategoryName(selectedProduct.category_id)} />
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// COMPONENTE: Detalle del Producto
-function ProductDetail({ product, categoryName }: { product: Product, categoryName: string }) {
-  const Field = ({ label, value }: { label: string; value: string | number }) => (
-    <div>
-      <label className="text-xs text-slate-400 block mb-0.5">{label}</label>
-      <div className="text-sm font-medium text-slate-800">{value}</div>
-    </div>
-  );
-
-  return (
-    <div className="bg-white rounded-xl overflow-hidden" style={{ border: '1px solid #E5E7EB' }}>
-      <div className="p-5 border-b flex items-start gap-4" style={{ borderColor: '#E5E7EB', background: 'linear-gradient(135deg, #1D2647 0%, #253060 100%)' }}>
-        <div className="flex-1 min-w-0">
-          <div className="font-display font-bold text-white text-lg leading-tight">{product.name}</div>
-          <div className="font-mono text-xs text-white/60 mt-0.5">{product.sku}</div>
-          <span className="text-xs px-2 py-0.5 rounded-full mt-2 inline-block" style={{ background: 'rgba(237,135,27,0.2)', color: '#ED871B' }}>
-            {categoryName}
-          </span>
-        </div>
-        <div className="text-right">
-          <div className="font-mono font-bold text-2xl text-white">${Number(product.price).toFixed(2)}</div>
-        </div>
-      </div>
-      <div className="p-5 grid grid-cols-2 gap-x-8 gap-y-4">
-        <div className="space-y-4">
-          <Field label="Nombre completo" value={product.name} />
-          <Field label="SKU / Código" value={product.sku} />
-          <Field label="Descripción" value={product.description || 'Sin descripción'} />
-        </div>
-        <div className="space-y-4">
-          <Field label="Precio de compra (Costo)" value={`$${Number(product.cost).toFixed(2)}`} />
-          <Field label="Stock actual" value={product.stock_actual} />
-          <Field label="Stock mínimo" value={product.stock_minimo} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// COMPONENTE: Formulario de Nuevo Producto (CONECTADO A LA API)
-function NewProductForm({ categories, onCancel, onSaved }: { categories: Category[], onCancel: () => void, onSaved: () => void }) {
-  const [formData, setFormData] = useState({
-    name: '', sku: '', category_id: categories[0]?.id || '', price: 0, cost: 0, stock_minimo: 0, description: ''
-  });
-
-  const handleSubmit = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
-      await api.post('/products', formData);
-      alert("Producto creado con éxito!");
-      onSaved(); // Recarga la lista
-      onCancel(); // Cierra el formulario
+      if (editingProduct) {
+        await api.put(`/products/${editingProduct.id}`, formData);
+      } else {
+        await api.post('/products', formData);
+      }
+      setIsModalOpen(false);
+      fetchProducts();
     } catch (error) {
-      console.error(error);
-      alert("Error al crear producto");
+      console.error("Error guardando producto:", error);
+      alert("Error al guardar. Verifica la consola.");
     }
   };
 
-  const inputCls = "w-full px-3 py-2 rounded-lg text-sm border outline-none focus:border-orange-500";
+  const openEditModal = (product: Product) => {
+    setEditingProduct(product);
+    setFormData({
+      sku: product.sku, name: product.name, description: product.description || 'Sin descripción',
+      price: product.price, cost: product.cost, stock_minimo: product.stock_minimo, is_service: product.is_service || false
+    });
+    setIsModalOpen(true);
+  };
+
+  const openCreateModal = () => {
+    setEditingProduct(null);
+    setFormData({ sku: '', name: '', description: 'Sin descripción', price: 0, cost: 0, stock_minimo: 5, is_service: false });
+    setIsModalOpen(true);
+  };
+
+  const toggleStatus = async (id: string, currentStatus: boolean) => {
+    if (confirm(`¿Desactivar/Activar este producto?`)) {
+      try {
+        await api.put(`/products/${id}/status`, { is_active: !currentStatus });
+        fetchProducts();
+      } catch (error) {
+        console.error("Error cambiando estado:", error);
+      }
+    }
+  };
+
+  // --- LÓGICA DE EXCEL ---
+  const downloadTemplate = () => {
+    const ws = XLSX.utils.json_to_sheet([{
+      'SKU': 'EJEMPLO-001',
+      'Nombre': 'Saco de Cemento 50kg',
+      'Descripción': 'Uso general',
+      'Costo': 6.50,
+      'Precio': 8.00,
+      'Stock Mínimo': 10,
+      'Es Servicio': 'NO'
+    }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Plantilla");
+    XLSX.writeFile(wb, "Plantilla_Productos_DBM.xlsx");
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setIsImporting(true);
+      const res = await api.post('/products/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      alert(res.data.message);
+      fetchProducts(); 
+    } catch (error: any) {
+      alert(error.response?.data?.detail || "Error al importar el archivo Excel");
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = ''; 
+    }
+  };
+
+  const filteredProducts = products.filter(p => 
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    p.sku.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
-    <div className="bg-white rounded-xl p-5" style={{ border: '1px solid #E5E7EB' }}>
-      <h2 className="font-display font-bold text-lg mb-4">Nuevo producto</h2>
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="col-span-2">
-          <label className="text-xs text-slate-500 block mb-1">Nombre</label>
-          <input className={inputCls} onChange={e => setFormData({...formData, name: e.target.value})} />
-        </div>
+    <div className="flex flex-col h-full gap-6">
+      <div className="flex justify-between items-start">
         <div>
-          <label className="text-xs text-slate-500 block mb-1">SKU</label>
-          <input className={inputCls} onChange={e => setFormData({...formData, sku: e.target.value})} />
+          <h1 className="text-2xl font-bold text-slate-800">Catálogo de Productos</h1>
+          <p className="text-sm text-slate-500 mt-1">Gestión de inventario, precios y artículos de la tienda</p>
         </div>
-        <div>
-          <label className="text-xs text-slate-500 block mb-1">Categoría</label>
-          <select className={inputCls} onChange={e => setFormData({...formData, category_id: e.target.value})}>
-            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+        {isAdmin && (
+          <div className="flex gap-2">
+            <button 
+              onClick={downloadTemplate}
+              className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2.5 rounded-lg shadow-sm font-medium transition-colors text-sm"
+            >
+              📥 Plantilla
+            </button>
+            
+            <input 
+              type="file" 
+              accept=".xlsx, .xls" 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleFileUpload} 
+            />
+            
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+              className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-sm font-medium transition-colors text-sm disabled:opacity-70"
+            >
+              {isImporting ? '⏳ Subiendo...' : '📁 Importar Excel'}
+            </button>
+
+            <button 
+              onClick={openCreateModal}
+              className="bg-orange-500 hover:bg-orange-600 text-white px-5 py-2.5 rounded-lg shadow-sm font-medium transition-colors text-sm"
+            >
+              + Nuevo Producto
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col flex-1 overflow-hidden p-6">
+        <div className="mb-6">
+          <div className="relative w-full md:w-1/2 lg:w-1/3">
+            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">🔍</span>
+            <input 
+              type="text" 
+              placeholder="Buscar producto por nombre o SKU..." 
+              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:outline-none text-sm"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
         </div>
-        <div>
-          <label className="text-xs text-slate-500 block mb-1">Precio Venta</label>
-          <input type="number" className={inputCls} onChange={e => setFormData({...formData, price: Number(e.target.value)})} />
-        </div>
-        <div>
-          <label className="text-xs text-slate-500 block mb-1">Costo Compra</label>
-          <input type="number" className={inputCls} onChange={e => setFormData({...formData, cost: Number(e.target.value)})} />
-        </div>
-        <div>
-          <label className="text-xs text-slate-500 block mb-1">Stock Mínimo</label>
-          <input type="number" className={inputCls} onChange={e => setFormData({...formData, stock_minimo: Number(e.target.value)})} />
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
+                <th className="pb-3 font-medium">SKU</th>
+                <th className="pb-3 font-medium">Nombre / Detalles</th>
+                <th className="pb-3 font-medium text-right">Stock</th>
+                {isAdmin && <th className="pb-3 font-medium text-right">Costo</th>}
+                <th className="pb-3 font-medium text-right">Precio</th>
+                <th className="pb-3 font-medium text-center">Estado</th>
+                {isAdmin && <th className="pb-3 font-medium text-center">Acciones</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">Cargando catálogo...</td></tr>
+              ) : filteredProducts.length === 0 ? (
+                <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">No se encontraron productos.</td></tr>
+              ) : filteredProducts.map((p) => (
+                <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
+                  <td className="py-4 text-sm font-mono text-slate-400">{p.sku}</td>
+                  <td className="py-4">
+                    <div className="font-medium text-slate-700">{p.name}</div>
+                    <div className="text-xs text-slate-400">{p.description}</div>
+                  </td>
+                  <td className="py-4 text-right">
+                    <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${p.stock_actual <= p.stock_minimo ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-slate-100 text-slate-600'}`}>
+                      {p.stock_actual}
+                    </span>
+                  </td>
+                  {isAdmin && <td className="py-4 text-right text-sm text-slate-500">${Number(p.cost).toFixed(2)}</td>}
+                  <td className="py-4 text-right font-bold text-orange-600">${Number(p.price).toFixed(2)}</td>
+                  <td className="py-4 text-center">
+                    <span className={`text-[10px] uppercase tracking-wider px-2 py-1 rounded-full ${p.is_active ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-400'}`}>
+                      {p.is_active ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </td>
+                  {isAdmin && (
+                    <td className="py-4 text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEditModal(p)} className="text-blue-500 hover:text-blue-700 text-xs font-medium mr-3">Editar</button>
+                      <button onClick={() => toggleStatus(p.id, p.is_active)} className="text-red-400 hover:text-red-600 text-xs font-medium">
+                        {p.is_active ? 'Ocultar' : 'Mostrar'}
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
-      <div className="flex gap-3">
-        <button onClick={onCancel} className="flex-1 py-2 border rounded-xl">Cancelar</button>
-        <button onClick={handleSubmit} className="flex-1 py-2 bg-orange-500 text-white rounded-xl font-bold">Guardar</button>
-      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-100">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h3 className="text-lg font-bold text-slate-800">
+                {editingProduct ? 'Editar Producto' : 'Crear Nuevo Producto'}
+              </h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
+            </div>
+            
+            <form onSubmit={handleSubmit} className="p-6">
+              <div className="grid grid-cols-2 gap-5">
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">SKU / Código</label>
+                  <input required type="text" value={formData.sku} onChange={(e) => setFormData({...formData, sku: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 text-sm" />
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nombre</label>
+                  <input required type="text" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 text-sm" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Descripción Corta</label>
+                  <input type="text" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 text-sm" />
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Costo ($)</label>
+                  <input required type="number" step="0.01" value={formData.cost} onChange={(e) => setFormData({...formData, cost: parseFloat(e.target.value)})} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 text-sm" />
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Precio Venta ($)</label>
+                  <input required type="number" step="0.01" value={formData.price} onChange={(e) => setFormData({...formData, price: parseFloat(e.target.value)})} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 text-sm font-bold text-orange-600" />
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Stock Mínimo</label>
+                  <input required type="number" value={formData.stock_minimo} onChange={(e) => setFormData({...formData, stock_minimo: parseInt(e.target.value)})} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 text-sm" />
+                </div>
+              </div>
+              
+              <div className="mt-8 flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-medium transition-colors">Cancelar</button>
+                <button type="submit" className="px-5 py-2 text-white bg-orange-500 hover:bg-orange-600 rounded-lg text-sm font-medium transition-colors shadow-sm">Guardar Producto</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Cell,
+  Tooltip, ResponsiveContainer, Cell, Legend
 } from 'recharts';
 import api from '../services/api';
 
@@ -76,7 +76,20 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center justify-center h-[220px] bg-gray-50 rounded border border-dashed border-gray-300 text-gray-400 text-sm">
-             [Gráfico Lineal Histórico]
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={data.historial} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} tickFormatter={(value) => `$${value}`} />
+                    <Tooltip 
+                      formatter={(value: any) => [`$${Number(value).toFixed(2)}`, '']}
+                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    />
+                    <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
+                  <Line type="monotone" dataKey="ventas" name="Ventas" stroke="#ED871B" strokeWidth={3} dot={{ r: 4, fill: '#ED871B', strokeWidth: 0 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="compras" name="Compras" stroke="#1D2647" strokeWidth={3} dot={{ r: 4, fill: '#1D2647', strokeWidth: 0 }} />
+              </LineChart>
+              </ResponsiveContainer>
           </div>
         </div>
 
