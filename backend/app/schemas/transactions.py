@@ -41,6 +41,8 @@ class SaleCreate(BaseModel):
     # Pago inicial (opcional): si el cliente paga algo al momento de la venta
     initial_payment_amount: Optional[Decimal] = None
     initial_payment_method: Optional[str] = None
+    # Permite ventas exentas de IVA (ej. ciertos clientes o productos)
+    apply_tax: bool = True
 
 class SaleResponse(BaseModel):
     id: UUID

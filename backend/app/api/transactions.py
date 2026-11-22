@@ -9,7 +9,7 @@ from app.schemas.transactions import PurchaseCreate, PurchaseResponse
 from app.models.transactions import Sale, SaleItem, Proforma, ProformaItem, SalePayment
 from app.schemas.transactions import SaleCreate, SaleResponse, ProformaCreate, ProformaResponse, SalePaymentCreate, SalePaymentResponse
 from app.models.third_parties import Customer
-from app.models.inventory import Location, InventoryStock
+from app.models.inventory import Location, InventoryStock, StockRequest
 from app.api.inventory import _apply_stock_delta
 router = APIRouter()
 
@@ -147,6 +147,10 @@ def create_sale(sale_data: SaleCreate, db: Session = Depends(get_db)):
     db.add(new_sale)
     db.flush()
 
+    # Acumula los faltantes de stock cuando se fuerza una venta sin stock
+    # suficiente, para generar una solicitud de reposición automática
+    stock_deficits: list[tuple] = []
+
     for item in sale_data.items:
         product = db.query(Product).filter(Product.id == item.product_id).first()
         if not product:
@@ -163,12 +167,16 @@ def create_sale(sale_data: SaleCreate, db: Session = Depends(get_db)):
                 .first()
             )
             disponible = stock_sucursal.quantity if stock_sucursal else Decimal('0')
-            if disponible < item.quantity and not sale_data.force_stock_override:
-                db.rollback()
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Stock insuficiente de {product.name} en {location.name}. Disponible: {disponible}"
-                )
+            if disponible < item.quantity:
+                if not sale_data.force_stock_override:
+                    db.rollback()
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Stock insuficiente de {product.name} en {location.name}. Disponible: {disponible}"
+                    )
+                # Se forzó la venta: registramos cuánto faltó para generar
+                # la solicitud de reposición al final.
+                stock_deficits.append((item.product_id, item.quantity - disponible))
 
         item_total = item.quantity * item.unit_price
         subtotal += item_total
@@ -197,7 +205,7 @@ def create_sale(sale_data: SaleCreate, db: Session = Depends(get_db)):
 
     new_sale.subtotal = subtotal
     subtotal_con_descuento = subtotal - sale_data.discount
-    new_sale.tax = subtotal_con_descuento * Decimal('0.15') # IVA Ecuador 15%
+    new_sale.tax = (subtotal_con_descuento * Decimal('0.15')) if sale_data.apply_tax else Decimal('0')
     new_sale.total = subtotal_con_descuento + new_sale.tax
 
     # Pago inicial (opcional): si el cliente pagó algo (todo, una parte, o nada)
@@ -210,6 +218,18 @@ def create_sale(sale_data: SaleCreate, db: Session = Depends(get_db)):
             amount=sale_data.initial_payment_amount,
             payment_method=sale_data.initial_payment_method or "Efectivo",
             notes="Pago registrado al momento de la venta",
+        ))
+
+    # Si se forzó la venta con stock negativo, dejamos una solicitud de
+    # reposición pendiente para que alguien la resuelva con una compra o
+    # un traslado desde otra sucursal.
+    for product_id, deficit in stock_deficits:
+        db.add(StockRequest(
+            product_id=product_id,
+            location_id=sale_data.location_id,
+            quantity_needed=deficit,
+            source_sale_id=new_sale.id,
+            notes=f"Generada automáticamente al forzar la venta #{str(new_sale.id)[:8].upper()}",
         ))
 
     db.commit()

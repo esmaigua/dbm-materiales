@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from decimal import Decimal
+from datetime import datetime
 from app.core.database import get_db
-from app.models.inventory import Location, InventoryStock, InventoryTransfer, InventoryTransferItem
+from app.models.inventory import Location, InventoryStock, InventoryTransfer, InventoryTransferItem, StockRequest
 from app.models.transactions import InventoryMovement
 from app.models.catalog import Product
 from app.schemas.inventory import (
     LocationCreate, LocationUpdate, LocationStatusUpdate, LocationResponse,
-    StockItemResponse, AdjustmentCreate, TransferCreate, TransferResponse
+    StockItemResponse, AdjustmentCreate, TransferCreate, TransferResponse, StockRequestResolve
 )
 
 router = APIRouter()
@@ -223,3 +224,52 @@ def create_transfer(data: TransferCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(transfer)
     return transfer
+
+
+# ============================================================
+# SOLICITUDES DE REPOSICIÓN
+# Se crean solas (ver api/transactions.py) cuando se fuerza una venta sin
+# stock suficiente en una sucursal. Quedan "PENDIENTE" hasta que alguien
+# las marca como atendidas manualmente, después de hacer la compra o el
+# traslado correspondiente.
+# ============================================================
+@router.get("/stock-requests")
+def list_stock_requests(status: str = "PENDIENTE", db: Session = Depends(get_db)):
+    query = (
+        db.query(StockRequest, Product, Location)
+        .join(Product, StockRequest.product_id == Product.id)
+        .join(Location, StockRequest.location_id == Location.id)
+    )
+    if status and status != "TODAS":
+        query = query.filter(StockRequest.status == status)
+
+    result = []
+    for req, product, location in query.order_by(StockRequest.created_at.desc()).all():
+        result.append({
+            "id": req.id,
+            "product_id": product.id,
+            "product_name": product.name,
+            "product_sku": product.sku,
+            "location_id": location.id,
+            "location_name": location.name,
+            "quantity_needed": float(req.quantity_needed),
+            "status": req.status,
+            "notes": req.notes,
+            "created_at": req.created_at,
+        })
+    return result
+
+
+@router.put("/stock-requests/{request_id}/resolve")
+def resolve_stock_request(request_id: str, data: StockRequestResolve, db: Session = Depends(get_db)):
+    req = db.query(StockRequest).filter(StockRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+
+    req.status = "ATENDIDA"
+    req.resolved_at = datetime.utcnow()
+    if data.notes:
+        req.notes = data.notes
+
+    db.commit()
+    return {"message": "Solicitud marcada como atendida"}

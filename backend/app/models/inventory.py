@@ -43,3 +43,20 @@ class InventoryTransferItem(Base):
     transfer_id = Column(UUID(as_uuid=True), ForeignKey("inventory_transfers.id"), nullable=False)
     product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
     quantity = Column(Numeric(10, 2), nullable=False)
+
+
+class StockRequest(Base):
+    """Se crea automáticamente cuando una venta se fuerza con stock
+    insuficiente en una sucursal: queda pendiente hasta que alguien la
+    atienda con una compra o un traslado desde otra sucursal."""
+    __tablename__ = "stock_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id"), nullable=False)
+    quantity_needed = Column(Numeric(10, 2), nullable=False)
+    status = Column(String, nullable=False, default="PENDIENTE")  # PENDIENTE | ATENDIDA
+    source_sale_id = Column(UUID(as_uuid=True), ForeignKey("sales.id"), nullable=True)
+    notes = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    resolved_at = Column(DateTime(timezone=True), nullable=True)

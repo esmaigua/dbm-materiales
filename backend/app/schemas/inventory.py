@@ -60,3 +60,7 @@ class TransferResponse(BaseModel):
     notes: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+# --- SOLICITUDES DE REPOSICIÓN (se crean solas al forzar una venta sin stock) ---
+class StockRequestResolve(BaseModel):
+    notes: Optional[str] = None

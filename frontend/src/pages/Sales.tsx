@@ -25,11 +25,17 @@ interface Location {
   is_active: boolean;
 }
 
-type CartItem = { 
-  producto: Product; 
-  cantidad: number; 
+type CartItem = {
+  producto: Product;
+  cantidad: number;
   descuento: number;
+  precio_unitario: number; // editable: permite aplicar descuentos manuales en el POS
 };
+
+interface StockItem {
+  product_id: string;
+  quantity: number;
+}
 
 export default function Sales() {
   const [view, setView] = useState<'lista' | 'nueva'>('nueva');
@@ -47,6 +53,11 @@ export default function Sales() {
   // Estado de pago de la venta: pagó todo, abonó una parte, o quedó a deber todo
   const [paymentOption, setPaymentOption] = useState<'completo' | 'parcial' | 'pendiente'>('completo');
   const [abonoAmount, setAbonoAmount] = useState('');
+  const [applyIva, setApplyIva] = useState(true);
+
+  // Stock del producto específicamente en la sucursal seleccionada (para
+  // mostrar y ordenar el catálogo, aunque se listan TODOS los productos)
+  const [locationStock, setLocationStock] = useState<Record<string, number>>({});
 
   // Estados del Historial
   const [salesHistory, setSalesHistory] = useState<any[]>([]);
@@ -66,6 +77,22 @@ export default function Sales() {
       loadData(); // Siempre recarga los productos frescos al entrar a vender
     }
   }, [view]);
+
+  // Cuando cambia la sucursal, recargamos cuánto stock hay de cada producto ahí
+  useEffect(() => {
+    if (selectedLocationId) loadLocationStock(selectedLocationId);
+  }, [selectedLocationId]);
+
+  const loadLocationStock = async (locationId: string) => {
+    try {
+      const res = await api.get('/inventory/stock', { params: { location_id: locationId } });
+      const map: Record<string, number> = {};
+      res.data.forEach((s: StockItem) => { map[s.product_id] = s.quantity; });
+      setLocationStock(map);
+    } catch (error) {
+      console.error('Error cargando stock de la sucursal:', error);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -167,16 +194,17 @@ export default function Sales() {
   };
 
   // 3. LÓGICA DEL CARRITO
-  const filteredProds = products.filter(
-    (p) =>
-      (p.name?.toLowerCase().includes(search.toLowerCase()) || p.sku?.toLowerCase().includes(search.toLowerCase()))
-  );
+  // Se listan TODOS los productos (no solo los de esta sucursal), pero se
+  // ordenan primero los que sí tienen stock aquí, y se marca cuáles no.
+  const filteredProds = products
+    .filter((p) => p.name?.toLowerCase().includes(search.toLowerCase()) || p.sku?.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => (locationStock[b.id] || 0) - (locationStock[a.id] || 0));
 
   const addToCart = (p: Product) => {
     setCart((prev) => {
       const existing = prev.find((i) => i.producto.id === p.id);
       if (existing) return prev.map((i) => i.producto.id === p.id ? { ...i, cantidad: i.cantidad + 1 } : i);
-      return [...prev, { producto: p, cantidad: 1, descuento: 0 }];
+      return [...prev, { producto: p, cantidad: 1, descuento: 0, precio_unitario: Number(p.price) }];
     });
   };
 
@@ -185,8 +213,12 @@ export default function Sales() {
     else setCart((prev) => prev.map((i) => i.producto.id === id ? { ...i, cantidad: qty } : i));
   };
 
-  const subtotal = cart.reduce((acc, i) => acc + (Number(i.producto.price) * i.cantidad), 0);
-  const iva = subtotal * 0.15;
+  const updatePrecio = (id: string, precio: number) => {
+    setCart((prev) => prev.map((i) => i.producto.id === id ? { ...i, precio_unitario: Math.max(0, precio) } : i));
+  };
+
+  const subtotal = cart.reduce((acc, i) => acc + (i.precio_unitario * i.cantidad), 0);
+  const iva = applyIva ? subtotal * 0.15 : 0;
   const total = subtotal + iva;
 
   // 4. CONFIRMAR VENTA
@@ -222,11 +254,12 @@ export default function Sales() {
       items: cart.map(item => ({
         product_id: item.producto.id,
         quantity: item.cantidad,
-        unit_price: Number(item.producto.price)
+        unit_price: item.precio_unitario
       })),
       force_stock_override: forceOverride,
       initial_payment_amount,
       initial_payment_method: formaPago,
+      apply_tax: applyIva,
     };
 
     try {
@@ -360,27 +393,36 @@ export default function Sales() {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-1">
-              {filteredProds.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => addToCart(p)}
-                  className="w-full flex items-center gap-3 p-3 rounded-lg text-left hover:bg-orange-50 transition-colors group"
-                  style={{ border: '1px solid transparent' }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#ED871B')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'transparent')}
-                >
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-base" style={{ background: '#F0F2F5' }}>📦</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm text-slate-800 truncate">{p.name}</div>
-                    <div className="text-xs font-mono" style={{ color: p.stock_actual <= 0 ? '#DC2626' : '#64748B' }}>
-                      {p.sku} — Stock: {p.stock_actual}
+              {filteredProds.map((p) => {
+                const stockAqui = locationStock[p.id] ?? 0;
+                const sinStockAqui = !p.is_service && stockAqui <= 0;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => addToCart(p)}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg text-left hover:bg-orange-50 transition-colors group"
+                    style={{ border: '1px solid transparent' }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#ED871B')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'transparent')}
+                  >
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-base" style={{ background: '#F0F2F5' }}>📦</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm text-slate-800 truncate">{p.name}</div>
+                      <div className="text-xs font-mono flex items-center gap-1.5" style={{ color: sinStockAqui ? '#DC2626' : '#64748B' }}>
+                        {p.sku} — Stock aquí: {p.is_service ? '—' : stockAqui}
+                        {sinStockAqui && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase" style={{ background: '#FEF2F2', color: '#DC2626' }}>
+                            Sin stock aquí
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <div className="font-mono font-bold text-sm" style={{ color: '#ED871B' }}>${Number(p.price).toFixed(2)}</div>
-                  </div>
-                </button>
-              ))}
+                    <div className="text-right flex-shrink-0">
+                      <div className="font-mono font-bold text-sm" style={{ color: '#ED871B' }}>${Number(p.price).toFixed(2)}</div>
+                    </div>
+                  </button>
+                );
+              })}
               {filteredProds.length === 0 && (
                 <div className="text-center py-8 text-slate-400 font-display">Sin productos disponibles</div>
               )}
@@ -401,24 +443,43 @@ export default function Sales() {
               ) : (
                 <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
                   {cart.map((item) => (
-                    <div key={item.producto.id} className="p-3 flex items-center gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-xs text-slate-800 truncate">{item.producto.name}</div>
-                        <div className="font-mono text-xs" style={{ color: '#ED871B' }}>${Number(item.producto.price).toFixed(2)}</div>
+                    <div key={item.producto.id} className="p-3 flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-xs text-slate-800 truncate">{item.producto.name}</div>
+                          {item.precio_unitario !== Number(item.producto.price) && (
+                            <div className="text-[10px] text-slate-400 line-through">Precio catálogo: ${Number(item.producto.price).toFixed(2)}</div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => updateQty(item.producto.id, item.cantidad - 1)}
+                            className="w-6 h-6 rounded text-xs font-bold flex items-center justify-center hover:bg-gray-100 border"
+                          >−</button>
+                          <span className="w-8 text-center font-mono text-sm font-bold text-slate-800">{item.cantidad}</span>
+                          <button
+                            onClick={() => updateQty(item.producto.id, item.cantidad + 1)}
+                            className="w-6 h-6 rounded text-xs font-bold flex items-center justify-center hover:bg-gray-100 border"
+                          >+</button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => updateQty(item.producto.id, item.cantidad - 1)}
-                          className="w-6 h-6 rounded text-xs font-bold flex items-center justify-center hover:bg-gray-100 border"
-                        >−</button>
-                        <span className="w-8 text-center font-mono text-sm font-bold text-slate-800">{item.cantidad}</span>
-                        <button
-                          onClick={() => updateQty(item.producto.id, item.cantidad + 1)}
-                          className="w-6 h-6 rounded text-xs font-bold flex items-center justify-center hover:bg-gray-100 border"
-                        >+</button>
-                      </div>
-                      <div className="font-mono font-semibold text-sm text-slate-800 w-16 text-right">
-                        ${(Number(item.producto.price) * item.cantidad).toFixed(2)}
+                      <div className="flex items-center justify-between gap-2 pl-0">
+                        <div className="flex items-center gap-1 text-xs text-slate-500">
+                          <span>Precio c/u:</span>
+                          <div className="relative w-20">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={item.precio_unitario}
+                              onChange={(e) => updatePrecio(item.producto.id, parseFloat(e.target.value) || 0)}
+                              className="w-full pl-4 pr-1 py-1 border border-slate-300 rounded text-xs text-right font-bold focus:outline-none focus:border-orange-500"
+                            />
+                          </div>
+                        </div>
+                        <div className="font-mono font-semibold text-sm text-slate-800">
+                          ${(item.precio_unitario * item.cantidad).toFixed(2)}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -501,10 +562,13 @@ export default function Sales() {
                   <span>Subtotal</span>
                   <span className="font-mono">${subtotal.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-sm text-slate-500">
-                  <span>IVA 15%</span>
+                <label className="flex justify-between items-center text-sm text-slate-500 cursor-pointer">
+                  <span className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={applyIva} onChange={(e) => setApplyIva(e.target.checked)} className="rounded" />
+                    IVA 15%
+                  </span>
                   <span className="font-mono">${iva.toFixed(2)}</span>
-                </div>
+                </label>
                 <div className="flex justify-between font-display font-bold text-lg text-slate-800 pt-1 border-t" style={{ borderColor: '#E5E7EB' }}>
                   <span>Total</span>
                   <span className="font-mono" style={{ color: '#ED871B' }}>${total.toFixed(2)}</span>
