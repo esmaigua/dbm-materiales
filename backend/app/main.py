@@ -7,6 +7,7 @@ from app.api.catalog import router as catalog_router
 from app.api.transactions import router as transactions_router
 from app.api.ai_agent import router as ai_router
 from app.api.dashboard import router as dashboard_router
+from app.api.inventory import router as inventory_router
 
 app = FastAPI(title="DBM Materiales y Acabados API")
 
@@ -22,6 +23,7 @@ app.add_middleware(
 app.include_router(catalog_router, prefix="/api/v1", tags=["Catálogo"])
 app.include_router(third_parties_router, prefix="/api/v1", tags=["Terceros"])
 app.include_router(transactions_router, prefix="/api/v1", tags=["Transacciones"])
+app.include_router(inventory_router, prefix="/api/v1", tags=["Inventario"])
 
 @app.on_event("startup")
 def startup_db_client():

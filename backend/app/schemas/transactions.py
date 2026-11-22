@@ -11,11 +11,13 @@ class PurchaseItemCreate(BaseModel):
 
 class PurchaseCreate(BaseModel):
     supplier_id: UUID
+    location_id: UUID
     items: List[PurchaseItemCreate]
 
 class PurchaseResponse(BaseModel):
     id: UUID
     supplier_id: UUID
+    location_id: UUID
     status: str
     subtotal: Decimal
     tax: Decimal
@@ -32,6 +34,7 @@ class SaleItemCreate(BaseModel):
 
 class SaleCreate(BaseModel):
     customer_id: UUID
+    location_id: UUID
     discount: Decimal = Decimal('0.0')
     items: List[SaleItemCreate]
     force_stock_override: bool = False
@@ -39,6 +42,7 @@ class SaleCreate(BaseModel):
 class SaleResponse(BaseModel):
     id: UUID
     customer_id: UUID
+    location_id: UUID
     status: str
     subtotal: Decimal
     discount: Decimal
