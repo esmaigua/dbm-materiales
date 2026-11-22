@@ -1,17 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from decimal import Decimal
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from app.core.database import get_db
 from app.models.transactions import Purchase, PurchaseItem, InventoryMovement
 from app.models.catalog import Product
 from app.schemas.transactions import PurchaseCreate, PurchaseResponse
-from app.models.transactions import Sale, SaleItem, Proforma, ProformaItem
-from app.schemas.transactions import SaleCreate, SaleResponse, ProformaCreate, ProformaResponse
+from app.models.transactions import Sale, SaleItem, Proforma, ProformaItem, SalePayment
+from app.schemas.transactions import SaleCreate, SaleResponse, ProformaCreate, ProformaResponse, SalePaymentCreate, SalePaymentResponse
 from app.models.third_parties import Customer
 from app.models.inventory import Location, InventoryStock
 from app.api.inventory import _apply_stock_delta
 router = APIRouter()
+
+
+# --- HELPER: calcula el estado de pago de una venta ---
+def _payment_status(total: Decimal, paid: Decimal) -> str:
+    if paid <= 0:
+        return "PENDIENTE"
+    if paid >= total:
+        return "PAGADO"
+    return "ABONADO"
+
+
+def _paid_total(db: Session, sale_id) -> Decimal:
+    result = db.query(func.coalesce(func.sum(SalePayment.amount), 0)).filter(SalePayment.sale_id == sale_id).scalar()
+    return Decimal(result)
 
 @router.post("/purchases", response_model=PurchaseResponse)
 def create_purchase(purchase_data: PurchaseCreate, db: Session = Depends(get_db)):
@@ -101,6 +115,9 @@ def get_sales(db: Session = Depends(get_db)):
 
         location = db.query(Location).filter(Location.id == sale.location_id).first()
 
+        paid_total = _paid_total(db, sale.id)
+        balance = sale.total - paid_total
+
         result.append({
             "id": sale.id,
             "created_at": sale.created_at,
@@ -109,6 +126,9 @@ def get_sales(db: Session = Depends(get_db)):
             "customer_name": customer_name,
             "location_id": sale.location_id,
             "location_name": location.name if location else None,
+            "paid_total": float(paid_total),
+            "balance": float(balance),
+            "payment_status": _payment_status(sale.total, paid_total),
         })
     return result
 
@@ -180,9 +200,68 @@ def create_sale(sale_data: SaleCreate, db: Session = Depends(get_db)):
     new_sale.tax = subtotal_con_descuento * Decimal('0.15') # IVA Ecuador 15%
     new_sale.total = subtotal_con_descuento + new_sale.tax
 
+    # Pago inicial (opcional): si el cliente pagó algo (todo, una parte, o nada)
+    if sale_data.initial_payment_amount and sale_data.initial_payment_amount > 0:
+        if sale_data.initial_payment_amount > new_sale.total:
+            db.rollback()
+            raise HTTPException(status_code=400, detail="El pago inicial no puede ser mayor al total de la venta.")
+        db.add(SalePayment(
+            sale_id=new_sale.id,
+            amount=sale_data.initial_payment_amount,
+            payment_method=sale_data.initial_payment_method or "Efectivo",
+            notes="Pago registrado al momento de la venta",
+        ))
+
     db.commit()
     db.refresh(new_sale)
     return new_sale
+
+# --- ENDPOINT: REGISTRAR UN ABONO SOBRE UNA VENTA EXISTENTE ---
+@router.post("/sales/{sale_id}/payments", response_model=SalePaymentResponse)
+def create_sale_payment(sale_id: str, data: SalePaymentCreate, db: Session = Depends(get_db)):
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+
+    if data.amount <= 0:
+        raise HTTPException(status_code=400, detail="El monto del abono debe ser mayor a cero")
+
+    paid_total = _paid_total(db, sale_id)
+    balance = sale.total - paid_total
+
+    if data.amount > balance:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El abono excede el saldo pendiente. Saldo actual: ${balance:.2f}"
+        )
+
+    payment = SalePayment(
+        sale_id=sale_id,
+        amount=data.amount,
+        payment_method=data.payment_method,
+        notes=data.notes,
+    )
+    if data.payment_date:
+        payment.payment_date = data.payment_date
+
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+# --- ENDPOINT: HISTORIAL DE ABONOS DE UNA VENTA ---
+@router.get("/sales/{sale_id}/payments", response_model=list[SalePaymentResponse])
+def list_sale_payments(sale_id: str, db: Session = Depends(get_db)):
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+
+    return (
+        db.query(SalePayment)
+        .filter(SalePayment.sale_id == sale_id)
+        .order_by(SalePayment.payment_date)
+        .all()
+    )
 
 # --- ENDPOINT DE PROFORMAS ---
 @router.post("/proformas", response_model=ProformaResponse)
@@ -286,5 +365,5 @@ def get_inventory_movements(db: Session = Depends(get_db)):
             "product_sku": m.product_sku,
             "location_name": m.location_name
         })
-        
+
     return result

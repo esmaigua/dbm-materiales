@@ -38,6 +38,9 @@ class SaleCreate(BaseModel):
     discount: Decimal = Decimal('0.0')
     items: List[SaleItemCreate]
     force_stock_override: bool = False
+    # Pago inicial (opcional): si el cliente paga algo al momento de la venta
+    initial_payment_amount: Optional[Decimal] = None
+    initial_payment_method: Optional[str] = None
 
 class SaleResponse(BaseModel):
     id: UUID
@@ -49,6 +52,22 @@ class SaleResponse(BaseModel):
     tax: Decimal
     total: Decimal
     created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+# --- ABONOS / PAGOS DE VENTAS ---
+class SalePaymentCreate(BaseModel):
+    amount: Decimal
+    payment_method: str
+    payment_date: Optional[datetime] = None
+    notes: Optional[str] = None
+
+class SalePaymentResponse(BaseModel):
+    id: UUID
+    sale_id: UUID
+    amount: Decimal
+    payment_date: datetime
+    payment_method: str
+    notes: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 # --- PROFORMAS ---

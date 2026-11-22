@@ -44,9 +44,19 @@ export default function Sales() {
   const [formaPago, setFormaPago] = useState('Efectivo');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Estado de pago de la venta: pagó todo, abonó una parte, o quedó a deber todo
+  const [paymentOption, setPaymentOption] = useState<'completo' | 'parcial' | 'pendiente'>('completo');
+  const [abonoAmount, setAbonoAmount] = useState('');
+
   // Estados del Historial
   const [salesHistory, setSalesHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Modal para registrar un abono adicional sobre una venta ya existente
+  const [abonoModalSale, setAbonoModalSale] = useState<any | null>(null);
+  const [abonoModalAmount, setAbonoModalAmount] = useState('');
+  const [abonoModalMethod, setAbonoModalMethod] = useState('Efectivo');
+  const [savingAbono, setSavingAbono] = useState(false);
 
   // 2. CONTROL DE VISTAS Y CARGA DE DATOS
   useEffect(() => {
@@ -64,16 +74,16 @@ export default function Sales() {
         api.get('/customers'),
         api.get('/locations')
       ]);
-      
+
       // Filtramos para asegurar que no salgan productos/clientes borrados
       const activeProducts = prodsRes.data.filter((p: Product) => p.is_active);
       const activeCustomers = custRes.data.filter((c: Customer) => c.is_active);
       const activeLocations = locRes.data.filter((l: Location) => l.is_active);
-      
+
       setProducts(activeProducts);
       setCustomers(activeCustomers);
       setLocations(activeLocations);
-      
+
       if (activeCustomers.length > 0 && !selectedCustomerId) {
         setSelectedCustomerId(activeCustomers[0].id);
       }
@@ -95,6 +105,51 @@ export default function Sales() {
     } finally {
       setLoadingHistory(false);
     }
+  };
+
+  const openAbonoModal = (sale: any) => {
+    setAbonoModalSale(sale);
+    setAbonoModalAmount('');
+    setAbonoModalMethod('Efectivo');
+  };
+
+  const closeAbonoModal = () => setAbonoModalSale(null);
+
+  const handleSaveAbono = async () => {
+    if (!abonoModalSale) return;
+    const monto = parseFloat(abonoModalAmount);
+    if (!monto || monto <= 0) {
+      alert("Ingresa un monto válido.");
+      return;
+    }
+    setSavingAbono(true);
+    try {
+      await api.post(`/sales/${abonoModalSale.id}/payments`, {
+        amount: monto,
+        payment_method: abonoModalMethod,
+      });
+      closeAbonoModal();
+      loadHistory();
+    } catch (error: any) {
+      alert(error.response?.data?.detail || "Error al registrar el abono.");
+      console.error(error);
+    } finally {
+      setSavingAbono(false);
+    }
+  };
+
+  const paymentStatusBadge = (status: string) => {
+    const map: Record<string, { bg: string; color: string; label: string }> = {
+      PAGADO: { bg: '#F0FDF4', color: '#16a34a', label: 'Pagado' },
+      ABONADO: { bg: '#FFFBEB', color: '#D97706', label: 'Abonado' },
+      PENDIENTE: { bg: '#FEF2F2', color: '#DC2626', label: 'Pendiente' },
+    };
+    const s = map[status] || map.PAGADO;
+    return (
+      <span className="text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap" style={{ background: s.bg, color: s.color }}>
+        {s.label}
+      </span>
+    );
   };
 
   const handleReimprimirTicket = async (saleId: string) => {
@@ -145,7 +200,21 @@ export default function Sales() {
       return;
     }
 
+    if (paymentOption === 'parcial') {
+      const monto = parseFloat(abonoAmount);
+      if (!monto || monto <= 0 || monto >= total) {
+        alert("El monto abonado debe ser mayor a 0 y menor al total de la venta. Si pagó todo, selecciona 'Pagó completo'.");
+        return;
+      }
+    }
+
     setIsSubmitting(true);
+
+    let initial_payment_amount: number | undefined;
+    if (paymentOption === 'completo') initial_payment_amount = total;
+    else if (paymentOption === 'parcial') initial_payment_amount = parseFloat(abonoAmount);
+    // 'pendiente' => no se envía pago inicial
+
     const payload = {
       customer_id: selectedCustomerId,
       location_id: selectedLocationId,
@@ -155,21 +224,25 @@ export default function Sales() {
         quantity: item.cantidad,
         unit_price: Number(item.producto.price)
       })),
-      force_stock_override: forceOverride
+      force_stock_override: forceOverride,
+      initial_payment_amount,
+      initial_payment_method: formaPago,
     };
 
     try {
           // 1. Guardamos en la base de datos
           const response = await api.post('/sales', payload);
-          
+
           // 2. Buscamos los datos completos del cliente seleccionado para el PDF
           const clienteSeleccionado = customers.find(c => c.id === selectedCustomerId) || { name: 'CF', document_number: '9999999999' };
-          
+
           // 3. ¡Generamos el PDF mágicamente!
           generarTicketPDF(response.data, clienteSeleccionado, cart);
 
           alert("¡Venta registrada con éxito!");
           setCart([]);
+          setAbonoAmount('');
+          setPaymentOption('completo');
           loadData();
         } catch (error: any) {
       if (error.response?.status === 400 && error.response?.data?.detail?.includes("Stock insuficiente")) {
@@ -228,16 +301,17 @@ export default function Sales() {
                   <th className="p-4 font-medium">ID Transacción</th>
                   <th className="p-4 font-medium">Cliente</th>
                   <th className="p-4 font-medium">Sucursal</th>
-                  <th className="p-4 font-medium text-right">Total Facturado</th>
-                  <th className="p-4 font-medium text-center">Estado</th>
+                  <th className="p-4 font-medium text-right">Total</th>
+                  <th className="p-4 font-medium text-right">Saldo</th>
+                  <th className="p-4 font-medium text-center">Estado de pago</th>
                   <th className="p-4 font-medium text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: '#f3f4f6' }}>
                 {loadingHistory ? (
-                  <tr><td colSpan={7} className="py-8 text-center text-slate-400">Cargando historial...</td></tr>
+                  <tr><td colSpan={8} className="py-8 text-center text-slate-400">Cargando historial...</td></tr>
                 ) : salesHistory.length === 0 ? (
-                  <tr><td colSpan={7} className="py-8 text-center text-slate-400">No hay ventas registradas aún.</td></tr>
+                  <tr><td colSpan={8} className="py-8 text-center text-slate-400">No hay ventas registradas aún.</td></tr>
                 ) : (
                   salesHistory.map((sale) => (
                     <tr key={sale.id} className="hover:bg-slate-50 transition-colors">
@@ -248,11 +322,17 @@ export default function Sales() {
                       <td className="p-4 text-sm text-slate-600">{sale.customer_name || 'Consumidor Final'}</td>
                       <td className="p-4 text-sm text-slate-600">{sale.location_name || '—'}</td>
                       <td className="p-4 text-right font-bold text-slate-700">${sale.total.toFixed(2)}</td>
-                      <td className="p-4 text-center">
-                        <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-medium">Completada</span>
+                      <td className="p-4 text-right font-mono text-sm" style={{ color: sale.balance > 0 ? '#DC2626' : '#64748B' }}>
+                        ${sale.balance.toFixed(2)}
                       </td>
                       <td className="p-4 text-center">
-                        <button onClick={() => handleReimprimirTicket(sale.id)}className="text-blue-500 hover:text-blue-700 text-xs font-medium mr-3">Imprimir Ticket</button>
+                        {paymentStatusBadge(sale.payment_status)}
+                      </td>
+                      <td className="p-4 text-center whitespace-nowrap">
+                        {sale.balance > 0 && (
+                          <button onClick={() => openAbonoModal(sale)} className="text-orange-600 hover:text-orange-700 text-xs font-medium mr-3">Registrar abono</button>
+                        )}
+                        <button onClick={() => handleReimprimirTicket(sale.id)} className="text-blue-500 hover:text-blue-700 text-xs font-medium">Imprimir Ticket</button>
                       </td>
                     </tr>
                   ))
@@ -370,15 +450,52 @@ export default function Sales() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-500 block mb-1">Forma de pago</label>
-                <select
-                  value={formaPago}
-                  onChange={(e) => setFormaPago(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg text-sm outline-none border focus:border-orange-500"
-                >
-                  {['Efectivo', 'Transferencia', 'Tarjeta'].map((f) => <option key={f}>{f}</option>)}
-                </select>
+                <label className="text-xs text-slate-500 block mb-1">Estado de pago</label>
+                <div className="grid grid-cols-3 gap-1">
+                  {[
+                    { id: 'completo', label: 'Pagó todo' },
+                    { id: 'parcial', label: 'Abono' },
+                    { id: 'pendiente', label: 'Fiado' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      onClick={() => setPaymentOption(opt.id as typeof paymentOption)}
+                      className="py-2 rounded-lg text-xs font-semibold transition-colors"
+                      style={{
+                        background: paymentOption === opt.id ? '#1D2647' : '#F0F2F5',
+                        color: paymentOption === opt.id ? '#fff' : '#64748B',
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
+              {paymentOption === 'parcial' && (
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">Monto abonado ahora</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={abonoAmount}
+                    onChange={(e) => setAbonoAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg text-sm outline-none border focus:border-orange-500"
+                  />
+                </div>
+              )}
+              {paymentOption !== 'pendiente' && (
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">Forma de pago</label>
+                  <select
+                    value={formaPago}
+                    onChange={(e) => setFormaPago(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg text-sm outline-none border focus:border-orange-500"
+                  >
+                    {['Efectivo', 'Transferencia', 'Tarjeta'].map((f) => <option key={f}>{f}</option>)}
+                  </select>
+                </div>
+              )}
               <div className="space-y-1.5 pt-2 border-t" style={{ borderColor: '#E5E7EB' }}>
                 <div className="flex justify-between text-sm text-slate-600">
                   <span>Subtotal</span>
@@ -400,6 +517,54 @@ export default function Sales() {
                 style={{ background: '#ED871B' }}
               >
                 {isSubmitting ? 'Procesando...' : 'Confirmar venta'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: registrar abono sobre una venta existente */}
+      {abonoModalSale && (
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={closeAbonoModal}>
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-display font-bold text-lg text-slate-800">Registrar abono</h3>
+              <p className="text-sm text-slate-500">
+                {abonoModalSale.customer_name || 'Consumidor Final'} — Saldo pendiente: <span className="font-bold text-red-600">${abonoModalSale.balance.toFixed(2)}</span>
+              </p>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Monto</label>
+              <input
+                type="number"
+                step="0.01"
+                value={abonoModalAmount}
+                onChange={(e) => setAbonoModalAmount(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none border focus:border-orange-500"
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Forma de pago</label>
+              <select
+                value={abonoModalMethod}
+                onChange={(e) => setAbonoModalMethod(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none border focus:border-orange-500"
+              >
+                {['Efectivo', 'Transferencia', 'Tarjeta'].map((f) => <option key={f}>{f}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button onClick={closeAbonoModal} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-slate-600" style={{ border: '1px solid #E5E7EB' }}>
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveAbono}
+                disabled={savingAbono}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: '#ED871B' }}
+              >
+                {savingAbono ? 'Guardando...' : 'Guardar abono'}
               </button>
             </div>
           </div>

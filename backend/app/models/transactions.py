@@ -64,6 +64,17 @@ class SaleItem(Base):
     unit_price = Column(Numeric(10, 2), nullable=False)
     total_price = Column(Numeric(12, 2), nullable=False)
 
+class SalePayment(Base):
+    __tablename__ = "sale_payments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sale_id = Column(UUID(as_uuid=True), ForeignKey("sales.id"), nullable=False)
+    amount = Column(Numeric(12, 2), nullable=False)
+    payment_date = Column(DateTime(timezone=True), server_default=func.now())
+    payment_method = Column(String, nullable=False)
+    notes = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class Proforma(Base):
     __tablename__ = "proformas"
 
