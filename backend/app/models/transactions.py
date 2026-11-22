@@ -9,6 +9,7 @@ class Purchase(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"))
+    location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), nullable=True) # Será útil cuando tengamos Auth
     status = Column(String, default="COMPLETED")
     subtotal = Column(Numeric(12, 2), nullable=False, default=0)
@@ -31,8 +32,9 @@ class InventoryMovement(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"))
+    location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), nullable=True)
-    movement_type = Column(String, nullable=False) # 'PURCHASE', 'SALE', etc.
+    movement_type = Column(String, nullable=False) # 'PURCHASE', 'SALE', 'ADJUSTMENT_IN', 'ADJUSTMENT_OUT', 'RETURN', 'TRANSFER_IN', 'TRANSFER_OUT'
     quantity = Column(Numeric(10, 2), nullable=False)
     reference_id = Column(UUID(as_uuid=True)) # ID de la compra o venta
     notes = Column(String)
@@ -43,6 +45,7 @@ class Sale(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.id"))
+    location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), nullable=True)
     status = Column(String, default="COMPLETED")
     subtotal = Column(Numeric(12, 2), nullable=False, default=0)
@@ -83,4 +86,4 @@ class ProformaItem(Base):
     product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"))
     quantity = Column(Numeric(10, 2), nullable=False)
     unit_price = Column(Numeric(10, 2), nullable=False)
-    total_price = Column(Numeric(12, 2), nullable=False)    
+    total_price = Column(Numeric(12, 2), nullable=False)
