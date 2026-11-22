@@ -10,7 +10,20 @@ interface Movement {
   notes: string;
   product_name: string;
   product_sku: string;
+  location_name: string;
 }
+
+const TIPO_LABELS: Record<string, string> = {
+  PURCHASE: 'Compra',
+  SALE: 'Venta',
+  ADJUSTMENT_IN: 'Ajuste (+)',
+  ADJUSTMENT_OUT: 'Ajuste (-)',
+  RETURN: 'Devolución',
+  TRANSFER_IN: 'Traslado (entra)',
+  TRANSFER_OUT: 'Traslado (sale)',
+};
+
+const ENTRADA_TYPES = new Set(['PURCHASE', 'ADJUSTMENT_IN', 'RETURN', 'TRANSFER_IN']);
 
 export default function Movements() {
   const [movements, setMovements] = useState<Movement[]>([]);
@@ -66,6 +79,7 @@ export default function Movements() {
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
                 <th className="p-4 font-medium">Fecha y Hora</th>
                 <th className="p-4 font-medium">Producto</th>
+                <th className="p-4 font-medium">Sucursal</th>
                 <th className="p-4 font-medium text-center">Tipo</th>
                 <th className="p-4 font-medium text-center">Cantidad</th>
                 <th className="p-4 font-medium">Motivo / Notas</th>
@@ -74,11 +88,11 @@ export default function Movements() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
-                <tr><td colSpan={6} className="py-8 text-center text-slate-400 text-sm">Cargando registros...</td></tr>
+                <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">Cargando registros...</td></tr>
               ) : filteredMovements.length === 0 ? (
-                <tr><td colSpan={6} className="py-8 text-center text-slate-400 text-sm">No se encontraron movimientos.</td></tr>
+                <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">No se encontraron movimientos.</td></tr>
               ) : filteredMovements.map((m) => {
-                const isIngreso = m.type === 'PURCHASE';
+                const isIngreso = ENTRADA_TYPES.has(m.type);
                 return (
                   <tr key={m.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-4 text-sm text-slate-600">
@@ -88,11 +102,12 @@ export default function Movements() {
                       <div className="font-medium text-slate-700">{m.product_name}</div>
                       <div className="text-xs font-mono text-slate-400">{m.product_sku}</div>
                     </td>
+                    <td className="p-4 text-sm text-slate-600">{m.location_name}</td>
                     <td className="p-4 text-center">
-                      <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                      <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider whitespace-nowrap ${
                         isIngreso ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                       }`}>
-                        {isIngreso ? 'Entrada' : 'Salida'}
+                        {TIPO_LABELS[m.type] || m.type}
                       </span>
                     </td>
                     <td className="p-4 text-center">

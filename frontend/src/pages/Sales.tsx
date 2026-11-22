@@ -19,6 +19,12 @@ interface Customer {
   is_active: boolean;
 }
 
+interface Location {
+  id: string;
+  name: string;
+  is_active: boolean;
+}
+
 type CartItem = { 
   producto: Product; 
   cantidad: number; 
@@ -32,7 +38,9 @@ export default function Sales() {
   
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [selectedLocationId, setSelectedLocationId] = useState('');
   const [formaPago, setFormaPago] = useState('Efectivo');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -51,20 +59,26 @@ export default function Sales() {
 
   const loadData = async () => {
     try {
-      const [prodsRes, custRes] = await Promise.all([
+      const [prodsRes, custRes, locRes] = await Promise.all([
         api.get('/products'),
-        api.get('/customers')
+        api.get('/customers'),
+        api.get('/locations')
       ]);
       
       // Filtramos para asegurar que no salgan productos/clientes borrados
       const activeProducts = prodsRes.data.filter((p: Product) => p.is_active);
       const activeCustomers = custRes.data.filter((c: Customer) => c.is_active);
+      const activeLocations = locRes.data.filter((l: Location) => l.is_active);
       
       setProducts(activeProducts);
       setCustomers(activeCustomers);
+      setLocations(activeLocations);
       
       if (activeCustomers.length > 0 && !selectedCustomerId) {
         setSelectedCustomerId(activeCustomers[0].id);
+      }
+      if (activeLocations.length > 0 && !selectedLocationId) {
+        setSelectedLocationId(activeLocations[0].id);
       }
     } catch (error) {
       console.error("Error cargando datos:", error);
@@ -126,10 +140,15 @@ export default function Sales() {
       alert("Por favor, selecciona un cliente primero.");
       return;
     }
+    if (!selectedLocationId) {
+      alert("Por favor, selecciona la sucursal donde se realiza la venta.");
+      return;
+    }
 
     setIsSubmitting(true);
     const payload = {
       customer_id: selectedCustomerId,
+      location_id: selectedLocationId,
       discount: 0,
       items: cart.map(item => ({
         product_id: item.producto.id,
@@ -207,6 +226,8 @@ export default function Sales() {
                 <tr className="bg-slate-50 border-b text-slate-500 text-xs uppercase tracking-wider" style={{ borderColor: '#E5E7EB' }}>
                   <th className="p-4 font-medium">Fecha</th>
                   <th className="p-4 font-medium">ID Transacción</th>
+                  <th className="p-4 font-medium">Cliente</th>
+                  <th className="p-4 font-medium">Sucursal</th>
                   <th className="p-4 font-medium text-right">Total Facturado</th>
                   <th className="p-4 font-medium text-center">Estado</th>
                   <th className="p-4 font-medium text-center">Acciones</th>
@@ -214,9 +235,9 @@ export default function Sales() {
               </thead>
               <tbody className="divide-y" style={{ borderColor: '#f3f4f6' }}>
                 {loadingHistory ? (
-                  <tr><td colSpan={5} className="py-8 text-center text-slate-400">Cargando historial...</td></tr>
+                  <tr><td colSpan={7} className="py-8 text-center text-slate-400">Cargando historial...</td></tr>
                 ) : salesHistory.length === 0 ? (
-                  <tr><td colSpan={5} className="py-8 text-center text-slate-400">No hay ventas registradas aún.</td></tr>
+                  <tr><td colSpan={7} className="py-8 text-center text-slate-400">No hay ventas registradas aún.</td></tr>
                 ) : (
                   salesHistory.map((sale) => (
                     <tr key={sale.id} className="hover:bg-slate-50 transition-colors">
@@ -224,6 +245,8 @@ export default function Sales() {
                         {new Date(sale.created_at).toLocaleDateString('es-EC', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </td>
                       <td className="p-4 text-sm font-mono text-slate-400">{sale.id.split('-')[0].toUpperCase()}</td>
+                      <td className="p-4 text-sm text-slate-600">{sale.customer_name || 'Consumidor Final'}</td>
+                      <td className="p-4 text-sm text-slate-600">{sale.location_name || '—'}</td>
                       <td className="p-4 text-right font-bold text-slate-700">${sale.total.toFixed(2)}</td>
                       <td className="p-4 text-center">
                         <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-medium">Completada</span>
@@ -325,6 +348,17 @@ export default function Sales() {
 
             <div className="bg-white rounded-xl p-4 space-y-3" style={{ border: '1px solid #E5E7EB' }}>
               <div>
+                <label className="text-xs text-slate-500 block mb-1">Sucursal</label>
+                <select
+                  value={selectedLocationId}
+                  onChange={(e) => setSelectedLocationId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none border focus:border-orange-500"
+                >
+                  <option value="" disabled>Seleccione una sucursal...</option>
+                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </div>
+              <div>
                 <label className="text-xs text-slate-500 block mb-1">Cliente</label>
                 <select
                   value={selectedCustomerId}
@@ -360,7 +394,7 @@ export default function Sales() {
                 </div>
               </div>
               <button
-                disabled={cart.length === 0 || isSubmitting}
+                disabled={cart.length === 0 || !selectedLocationId || isSubmitting}
                 onClick={() => handleCheckout(false)}
                 className="w-full py-3 rounded-xl font-display font-semibold text-white text-sm transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ background: '#ED871B' }}

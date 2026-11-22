@@ -4,6 +4,7 @@ import { alertas } from '../data/mockData';
 const navItems = [
   { id: 'dashboard', icon: '▦', label: 'Dashboard' },
   { id: 'inventario', icon: '📦', label: 'Inventario' },
+  { id: 'traslados', icon: '🔁', label: 'Traslados' },  
   { id: 'productos', icon: '🏷️', label: 'Productos' },
   { id: 'movimientos', icon: '🔄', label: 'Movimientos' },
   { id: 'ventas', icon: '🛒', label: 'Ventas' },

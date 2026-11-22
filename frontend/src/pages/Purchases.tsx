@@ -15,6 +15,12 @@ interface Supplier {
   document_number: string;
 }
 
+interface Location {
+  id: string;
+  name: string;
+  is_active: boolean;
+}
+
 interface CartItem extends Product {
   quantity: number;
   input_cost: number; // Permite modificar el costo al que llega en esta factura específica
@@ -23,11 +29,13 @@ interface CartItem extends Product {
 export default function Purchases() {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   // Estado del carrito y la transacción
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedSupplier, setSelectedSupplier] = useState<string>('');
+  const [selectedLocation, setSelectedLocation] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -36,14 +44,19 @@ export default function Purchases() {
 
   const fetchInitialData = async () => {
     try {
-      // Cargamos catálogo y directorio simultáneamente
-      const [productsRes, suppliersRes] = await Promise.all([
+      // Cargamos catálogo, directorio y sucursales simultáneamente
+      const [productsRes, suppliersRes, locationsRes] = await Promise.all([
         api.get('/products'),
-        api.get('/suppliers')
+        api.get('/suppliers'),
+        api.get('/locations')
       ]);
       // Filtramos para mostrar solo activos (opcional, dependiendo de tu lógica)
       setProducts(productsRes.data.filter((p: any) => p.is_active));
       setSuppliers(suppliersRes.data.filter((s: any) => s.is_active));
+
+      const activeLocations = locationsRes.data.filter((l: Location) => l.is_active);
+      setLocations(activeLocations);
+      setSelectedLocation(prev => prev || activeLocations[0]?.id || '');
     } catch (error) {
       console.error("Error cargando datos iniciales:", error);
     }
@@ -86,6 +99,10 @@ export default function Purchases() {
       alert("Por favor, selecciona un proveedor.");
       return;
     }
+    if (!selectedLocation) {
+      alert("Por favor, selecciona la sucursal que recibe la mercadería.");
+      return;
+    }
     if (cart.length === 0) {
       alert("El carrito de compras está vacío.");
       return;
@@ -96,6 +113,7 @@ export default function Purchases() {
       // Estructura esperada por un backend transaccional típico
       const payload = {
         supplier_id: selectedSupplier,
+        location_id: selectedLocation,
         subtotal: subtotal,
         iva: iva,
         total: total,
@@ -107,8 +125,8 @@ export default function Purchases() {
       };
 
       await api.post('/purchases', payload);
-      
-      alert("Compra registrada exitosamente. El inventario ha sido actualizado.");
+
+      alert("Compra registrada exitosamente. El inventario de la sucursal ha sido actualizado.");
       setCart([]);
       setSelectedSupplier('');
       fetchInitialData(); // Recargamos para ver el nuevo stock
@@ -234,6 +252,20 @@ export default function Purchases() {
           {/* Panel de Totales y Proveedor */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-4">
             <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Sucursal que recibe</label>
+              <select
+                value={selectedLocation}
+                onChange={(e) => setSelectedLocation(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 text-sm"
+              >
+                <option value="">Seleccione una sucursal...</option>
+                {locations.map(l => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Proveedor</label>
               <select 
                 value={selectedSupplier}
@@ -264,7 +296,7 @@ export default function Purchases() {
 
             <button 
               onClick={handleConfirmPurchase}
-              disabled={cart.length === 0 || !selectedSupplier || isSubmitting}
+              disabled={cart.length === 0 || !selectedSupplier || !selectedLocation || isSubmitting}
               className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors shadow-sm mt-2"
             >
               {isSubmitting ? 'Procesando...' : 'Confirmar Ingreso'}
