@@ -44,6 +44,7 @@ export default function Products() {
       setProducts(response.data);
     } catch (error) {
       console.error("Error cargando productos:", error);
+      alert("No se pudo cargar el catálogo de productos. Revisa tu conexión e intenta de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -85,8 +86,9 @@ export default function Products() {
       try {
         await api.put(`/products/${id}/status`, { is_active: !currentStatus });
         fetchProducts();
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error cambiando estado:", error);
+        alert(error.response?.data?.detail || "Error al cambiar el estado del producto.");
       }
     }
   };

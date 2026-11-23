@@ -28,15 +28,18 @@ const ENTRADA_TYPES = new Set(['PURCHASE', 'ADJUSTMENT_IN', 'RETURN', 'TRANSFER_
 export default function Movements() {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     const fetchMovements = async () => {
       try {
+        setLoadError(false);
         const response = await api.get('/movements');
         setMovements(response.data);
       } catch (error) {
         console.error("Error cargando movimientos:", error);
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
@@ -89,6 +92,8 @@ export default function Movements() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">Cargando registros...</td></tr>
+              ) : loadError ? (
+                <tr><td colSpan={7} className="py-8 text-center text-red-500 text-sm">No se pudieron cargar los movimientos. Revisa tu conexión e intenta de nuevo.</td></tr>
               ) : filteredMovements.length === 0 ? (
                 <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">No se encontraron movimientos.</td></tr>
               ) : filteredMovements.map((m) => {

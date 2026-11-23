@@ -1,10 +1,11 @@
-import { type ReactNode } from 'react';
-import { alertas } from '../data/mockData';
+import { type ReactNode, useEffect, useState } from 'react';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 const navItems = [
   { id: 'dashboard', icon: '▦', label: 'Dashboard' },
   { id: 'inventario', icon: '📦', label: 'Inventario' },
-  { id: 'traslados', icon: '🔁', label: 'Traslados' },  
+  { id: 'traslados', icon: '🔁', label: 'Traslados' },
   { id: 'productos', icon: '🏷️', label: 'Productos' },
   { id: 'movimientos', icon: '🔄', label: 'Movimientos' },
   { id: 'ventas', icon: '🛒', label: 'Ventas' },
@@ -27,8 +28,32 @@ interface LayoutProps {
   onLogout: () => void;
 }
 
+interface StockItem {
+  estado: 'normal' | 'bajo' | 'critico' | 'agotado';
+}
+
 export default function Layout({ children, activePage, onNavigate, onLogout }: LayoutProps) {
-  const criticalCount = alertas.filter((a) => a.tipo === 'crítico' || a.tipo === 'agotado').length;
+  const { user, role } = useAuth();
+  const [criticalCount, setCriticalCount] = useState(0);
+
+  // Conteo real de productos en estado crítico/agotado (reemplaza el dato
+  // fijo que venía de data/mockData.ts, que nunca coincidía con la realidad)
+  useEffect(() => {
+    const loadCriticalCount = async () => {
+      try {
+        const res = await api.get('/inventory/stock');
+        const count = res.data.filter((s: StockItem) => s.estado === 'critico' || s.estado === 'agotado').length;
+        setCriticalCount(count);
+      } catch (error) {
+        console.error('Error cargando el conteo de stock crítico:', error);
+      }
+    };
+    loadCriticalCount();
+  }, [activePage]);
+
+  const userEmail = user?.email || '';
+  const userInitial = userEmail.charAt(0).toUpperCase() || '?';
+  const roleLabel = role === 'ADMIN' ? 'Administrador' : 'Vendedor';
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: '#F0F2F5' }}>
@@ -88,14 +113,6 @@ export default function Layout({ children, activePage, onNavigate, onLogout }: L
                     {criticalCount}
                   </span>
                 )}
-                {item.id === 'proformas' && (
-                  <span
-                    className="ml-auto text-xs font-bold px-1.5 py-0.5 rounded-full"
-                    style={{ background: isActive ? 'rgba(255,255,255,0.3)' : 'rgba(237,135,27,0.2)', color: isActive ? '#fff' : '#ED871B', fontSize: '10px' }}
-                  >
-                    5
-                  </span>
-                )}
               </button>
             );
           })}
@@ -140,11 +157,11 @@ export default function Layout({ children, activePage, onNavigate, onLogout }: L
               className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
               style={{ background: '#ED871B' }}
             >
-              A
+              {userInitial}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-white truncate font-display">Administrador</div>
-              <div className="text-xs text-slate-400 truncate">admin@dbm.ec</div>
+              <div className="text-xs font-medium text-white truncate font-display">{roleLabel}</div>
+              <div className="text-xs text-slate-400 truncate">{userEmail || 'Sin correo'}</div>
             </div>
             <button
               onClick={onLogout}
@@ -203,9 +220,9 @@ export default function Layout({ children, activePage, onNavigate, onLogout }: L
                 className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
                 style={{ background: '#ED871B' }}
               >
-                A
+                {userInitial}
               </div>
-              <span className="text-sm font-medium text-slate-700 font-display">Administrador</span>
+              <span className="text-sm font-medium text-slate-700 font-display">{roleLabel}</span>
             </div>
           </div>
         </header>

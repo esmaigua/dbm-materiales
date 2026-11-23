@@ -69,6 +69,11 @@ export default function Sales() {
   const [abonoModalMethod, setAbonoModalMethod] = useState('Efectivo');
   const [savingAbono, setSavingAbono] = useState(false);
 
+  // Modal para anular una venta ya existente (revierte el stock)
+  const [cancelModalSale, setCancelModalSale] = useState<any | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+
   // 2. CONTROL DE VISTAS Y CARGA DE DATOS
   useEffect(() => {
     if (view === 'lista') {
@@ -119,6 +124,7 @@ export default function Sales() {
       }
     } catch (error) {
       console.error("Error cargando datos:", error);
+      alert("No se pudieron cargar los productos, clientes o sucursales. Revisa tu conexión e intenta de nuevo.");
     }
   };
 
@@ -129,6 +135,7 @@ export default function Sales() {
       setSalesHistory(res.data);
     } catch (error) {
       console.error("Error cargando historial", error);
+      alert("No se pudo cargar el historial de ventas.");
     } finally {
       setLoadingHistory(false);
     }
@@ -163,6 +170,43 @@ export default function Sales() {
     } finally {
       setSavingAbono(false);
     }
+  };
+
+  const openCancelModal = (sale: any) => {
+    setCancelModalSale(sale);
+    setCancelReason('');
+  };
+
+  const closeCancelModal = () => setCancelModalSale(null);
+
+  const handleCancelSale = async () => {
+    if (!cancelModalSale) return;
+    if (!cancelReason.trim()) {
+      alert("Indica el motivo de la anulación.");
+      return;
+    }
+    setCancelling(true);
+    try {
+      await api.post(`/sales/${cancelModalSale.id}/cancel`, { reason: cancelReason.trim() });
+      closeCancelModal();
+      loadHistory();
+    } catch (error: any) {
+      alert(error.response?.data?.detail || "Error al anular la venta.");
+      console.error(error);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const saleStatusBadge = (status: string) => {
+    if (status === 'CANCELADA') {
+      return (
+        <span className="text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap" style={{ background: '#F1F5F9', color: '#64748B' }}>
+          Anulada
+        </span>
+      );
+    }
+    return null;
   };
 
   const paymentStatusBadge = (status: string) => {
@@ -359,13 +403,16 @@ export default function Sales() {
                         ${sale.balance.toFixed(2)}
                       </td>
                       <td className="p-4 text-center">
-                        {paymentStatusBadge(sale.payment_status)}
+                        {sale.status === 'CANCELADA' ? saleStatusBadge(sale.status) : paymentStatusBadge(sale.payment_status)}
                       </td>
                       <td className="p-4 text-center whitespace-nowrap">
-                        {sale.balance > 0 && (
+                        {sale.status !== 'CANCELADA' && sale.balance > 0 && (
                           <button onClick={() => openAbonoModal(sale)} className="text-orange-600 hover:text-orange-700 text-xs font-medium mr-3">Registrar abono</button>
                         )}
-                        <button onClick={() => handleReimprimirTicket(sale.id)} className="text-blue-500 hover:text-blue-700 text-xs font-medium">Imprimir Ticket</button>
+                        <button onClick={() => handleReimprimirTicket(sale.id)} className="text-blue-500 hover:text-blue-700 text-xs font-medium mr-3">Imprimir Ticket</button>
+                        {sale.status !== 'CANCELADA' && (
+                          <button onClick={() => openCancelModal(sale)} className="text-red-500 hover:text-red-700 text-xs font-medium">Anular</button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -629,6 +676,46 @@ export default function Sales() {
                 style={{ background: '#ED871B' }}
               >
                 {savingAbono ? 'Guardando...' : 'Guardar abono'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: anular una venta existente (revierte el stock) */}
+      {cancelModalSale && (
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={closeCancelModal}>
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-display font-bold text-lg text-slate-800">Anular venta</h3>
+              <p className="text-sm text-slate-500">
+                {cancelModalSale.customer_name || 'Consumidor Final'} — Total: <span className="font-bold">${cancelModalSale.total.toFixed(2)}</span>
+              </p>
+              <p className="text-xs mt-2" style={{ color: '#D97706' }}>
+                ⚠️ El stock de los productos vendidos se devolverá a la sucursal automáticamente. Esta acción queda registrada y no se puede deshacer.
+              </p>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Motivo de la anulación</label>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none border focus:border-orange-500"
+                placeholder="Ej. Cliente equivocado, producto incorrecto..."
+                rows={3}
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button onClick={closeCancelModal} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-slate-600" style={{ border: '1px solid #E5E7EB' }}>
+                Cancelar
+              </button>
+              <button
+                onClick={handleCancelSale}
+                disabled={cancelling}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: '#DC2626' }}
+              >
+                {cancelling ? 'Anulando...' : 'Anular venta'}
               </button>
             </div>
           </div>

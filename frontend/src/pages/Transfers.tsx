@@ -50,6 +50,7 @@ export default function Transfers() {
       setLocations(res.data.filter((l: Location) => l.is_active));
     } catch (error) {
       console.error('Error cargando sucursales:', error);
+      alert('No se pudieron cargar las sucursales. Revisa tu conexión e intenta de nuevo.');
     }
   };
 
@@ -59,6 +60,7 @@ export default function Transfers() {
       setOriginStock(res.data.filter((s: StockItem) => s.quantity > 0));
     } catch (error) {
       console.error('Error cargando stock de origen:', error);
+      alert('No se pudo cargar el stock de la sucursal de origen.');
     }
   };
 

@@ -41,6 +41,7 @@ export default function Clients() {
       setClients(response.data);
     } catch (error) {
       console.error("Error cargando clientes:", error);
+      alert("No se pudo cargar el directorio de clientes. Revisa tu conexión e intenta de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -88,8 +89,9 @@ export default function Clients() {
       try {
         await api.put(`/customers/${id}/status`, { is_active: !currentStatus });
         fetchClients();
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error cambiando estado:", error);
+        alert(error.response?.data?.detail || "Error al cambiar el estado del cliente.");
       }
     }
   };

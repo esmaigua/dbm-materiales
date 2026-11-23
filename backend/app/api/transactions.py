@@ -1,14 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from decimal import Decimal
+from datetime import datetime
 from sqlalchemy import desc, func
 from app.core.database import get_db
 from app.models.transactions import Purchase, PurchaseItem, InventoryMovement
 from app.models.catalog import Product
-from app.schemas.transactions import PurchaseCreate, PurchaseResponse
+from app.schemas.transactions import PurchaseCreate, PurchaseResponse, PurchaseCancelRequest
 from app.models.transactions import Sale, SaleItem, Proforma, ProformaItem, SalePayment
-from app.schemas.transactions import SaleCreate, SaleResponse, ProformaCreate, ProformaResponse, SalePaymentCreate, SalePaymentResponse
-from app.models.third_parties import Customer
+from app.schemas.transactions import SaleCreate, SaleResponse, ProformaCreate, ProformaResponse, SalePaymentCreate, SalePaymentResponse, SaleCancelRequest
+from app.models.third_parties import Customer, Supplier
 from app.models.inventory import Location, InventoryStock, StockRequest
 from app.api.inventory import _apply_stock_delta
 router = APIRouter()
@@ -96,6 +97,100 @@ def create_purchase(purchase_data: PurchaseCreate, db: Session = Depends(get_db)
 
     return new_purchase
 
+# --- ENDPOINT PARA OBTENER EL HISTORIAL DE COMPRAS ---
+@router.get("/purchases")
+def get_purchases(db: Session = Depends(get_db)):
+    purchases = db.query(Purchase).order_by(desc(Purchase.created_at)).all()
+    result = []
+    for purchase in purchases:
+        supplier = db.query(Supplier).filter(Supplier.id == purchase.supplier_id).first() if purchase.supplier_id else None
+        location = db.query(Location).filter(Location.id == purchase.location_id).first()
+        result.append({
+            "id": purchase.id,
+            "created_at": purchase.created_at,
+            "supplier_id": purchase.supplier_id,
+            "supplier_name": supplier.name if supplier else "—",
+            "location_id": purchase.location_id,
+            "location_name": location.name if location else None,
+            "subtotal": float(purchase.subtotal),
+            "tax": float(purchase.tax),
+            "total": float(purchase.total),
+            "status": purchase.status,
+            "cancelled_at": purchase.cancelled_at,
+            "cancel_reason": purchase.cancel_reason,
+        })
+    return result
+
+# --- ENDPOINT: DETALLE DE UNA COMPRA ---
+@router.get("/purchases/{purchase_id}/details")
+def get_purchase_details(purchase_id: str, db: Session = Depends(get_db)):
+    purchase = db.query(Purchase).filter(Purchase.id == purchase_id).first()
+    if not purchase:
+        raise HTTPException(status_code=404, detail="Compra no encontrada")
+
+    items = db.query(PurchaseItem).filter(PurchaseItem.purchase_id == purchase_id).all()
+    supplier = db.query(Supplier).filter(Supplier.id == purchase.supplier_id).first() if purchase.supplier_id else None
+    location = db.query(Location).filter(Location.id == purchase.location_id).first()
+
+    item_list = []
+    for item in items:
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        item_list.append({
+            "product_name": product.name if product else "Producto no disponible",
+            "quantity": float(item.quantity),
+            "unit_cost": float(item.unit_cost),
+            "total_price": float(item.total_price),
+        })
+
+    return {
+        "id": purchase.id,
+        "created_at": purchase.created_at,
+        "supplier_name": supplier.name if supplier else "—",
+        "location_name": location.name if location else None,
+        "status": purchase.status,
+        "subtotal": float(purchase.subtotal),
+        "tax": float(purchase.tax),
+        "total": float(purchase.total),
+        "cancelled_at": purchase.cancelled_at,
+        "cancel_reason": purchase.cancel_reason,
+        "items": item_list,
+    }
+
+# --- ENDPOINT: ANULAR UNA COMPRA (revierte el stock que esa compra había sumado) ---
+@router.post("/purchases/{purchase_id}/cancel", response_model=PurchaseResponse)
+def cancel_purchase(purchase_id: str, data: PurchaseCancelRequest, db: Session = Depends(get_db)):
+    purchase = db.query(Purchase).filter(Purchase.id == purchase_id).first()
+    if not purchase:
+        raise HTTPException(status_code=404, detail="Compra no encontrada")
+    if purchase.status == "CANCELADA":
+        raise HTTPException(status_code=400, detail="Esta compra ya está anulada")
+    if not data.reason or not data.reason.strip():
+        raise HTTPException(status_code=400, detail="Debes indicar el motivo de la anulación")
+
+    items = db.query(PurchaseItem).filter(PurchaseItem.purchase_id == purchase_id).all()
+    for item in items:
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        if product and not product.is_service:
+            # Revertimos el stock que esta compra había sumado (puede quedar
+            # negativo si ya se vendió; es una corrección contable, se permite)
+            _apply_stock_delta(db, item.product_id, purchase.location_id, -item.quantity)
+            db.add(InventoryMovement(
+                product_id=item.product_id,
+                location_id=purchase.location_id,
+                movement_type='ADJUSTMENT_OUT',
+                quantity=item.quantity,
+                reference_id=purchase.id,
+                notes=f"Anulación de compra #{str(purchase.id)[:8].upper()}: {data.reason.strip()}",
+            ))
+
+    purchase.status = "CANCELADA"
+    purchase.cancelled_at = datetime.utcnow()
+    purchase.cancel_reason = data.reason.strip()
+
+    db.commit()
+    db.refresh(purchase)
+    return purchase
+
 # --- ENDPOINT PARA OBTENER EL HISTORIAL DE VENTAS ---
 @router.get("/sales")
 def get_sales(db: Session = Depends(get_db)):
@@ -129,6 +224,9 @@ def get_sales(db: Session = Depends(get_db)):
             "paid_total": float(paid_total),
             "balance": float(balance),
             "payment_status": _payment_status(sale.total, paid_total),
+            "status": sale.status,
+            "cancelled_at": sale.cancelled_at,
+            "cancel_reason": sale.cancel_reason,
         })
     return result
 
@@ -235,6 +333,52 @@ def create_sale(sale_data: SaleCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_sale)
     return new_sale
+
+# --- ENDPOINT: ANULAR UNA VENTA (revierte el stock vendido y resuelve
+# cualquier solicitud de reposición que esa venta hubiera generado) ---
+@router.post("/sales/{sale_id}/cancel", response_model=SaleResponse)
+def cancel_sale(sale_id: str, data: SaleCancelRequest, db: Session = Depends(get_db)):
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+    if sale.status == "CANCELADA":
+        raise HTTPException(status_code=400, detail="Esta venta ya está anulada")
+    if not data.reason or not data.reason.strip():
+        raise HTTPException(status_code=400, detail="Debes indicar el motivo de la anulación")
+
+    items = db.query(SaleItem).filter(SaleItem.sale_id == sale_id).all()
+    for item in items:
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        if product and not product.is_service:
+            _apply_stock_delta(db, item.product_id, sale.location_id, item.quantity)
+            db.add(InventoryMovement(
+                product_id=item.product_id,
+                location_id=sale.location_id,
+                movement_type='RETURN',
+                quantity=item.quantity,
+                reference_id=sale.id,
+                notes=f"Anulación de venta #{str(sale.id)[:8].upper()}: {data.reason.strip()}",
+            ))
+
+    # Si esta venta había generado una solicitud de reposición pendiente
+    # (se forzó sin stock), ya no aplica: la marcamos como atendida.
+    pending_requests = (
+        db.query(StockRequest)
+        .filter(StockRequest.source_sale_id == sale.id, StockRequest.status == "PENDIENTE")
+        .all()
+    )
+    for req in pending_requests:
+        req.status = "ATENDIDA"
+        req.resolved_at = datetime.utcnow()
+        req.notes = "Resuelta automáticamente: la venta que la originó fue anulada."
+
+    sale.status = "CANCELADA"
+    sale.cancelled_at = datetime.utcnow()
+    sale.cancel_reason = data.reason.strip()
+
+    db.commit()
+    db.refresh(sale)
+    return sale
 
 # --- ENDPOINT: REGISTRAR UN ABONO SOBRE UNA VENTA EXISTENTE ---
 @router.post("/sales/{sale_id}/payments", response_model=SalePaymentResponse)

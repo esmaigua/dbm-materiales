@@ -23,8 +23,13 @@ class PurchaseResponse(BaseModel):
     tax: Decimal
     total: Decimal
     created_at: datetime
-    
+    cancelled_at: Optional[datetime] = None
+    cancel_reason: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
+
+class PurchaseCancelRequest(BaseModel):
+    reason: str
 
 # --- VENTAS ---
 class SaleItemCreate(BaseModel):
@@ -54,7 +59,12 @@ class SaleResponse(BaseModel):
     tax: Decimal
     total: Decimal
     created_at: datetime
+    cancelled_at: Optional[datetime] = None
+    cancel_reason: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
+
+class SaleCancelRequest(BaseModel):
+    reason: str
 
 # --- ABONOS / PAGOS DE VENTAS ---
 class SalePaymentCreate(BaseModel):

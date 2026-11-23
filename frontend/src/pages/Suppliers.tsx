@@ -38,6 +38,7 @@ export default function Suppliers() {
       setSuppliers(response.data);
     } catch (error) {
       console.error("Error cargando proveedores:", error);
+      alert("No se pudo cargar el directorio de proveedores. Revisa tu conexión e intenta de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -82,8 +83,9 @@ export default function Suppliers() {
       try {
         await api.put(`/suppliers/${id}/status`, { is_active: !currentStatus });
         fetchSuppliers();
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error cambiando estado:", error);
+        alert(error.response?.data?.detail || "Error al cambiar el estado del proveedor.");
       }
     }
   };

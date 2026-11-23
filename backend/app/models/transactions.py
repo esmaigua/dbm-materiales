@@ -16,6 +16,8 @@ class Purchase(Base):
     tax = Column(Numeric(12, 2), nullable=False, default=0)
     total = Column(Numeric(12, 2), nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    cancelled_at = Column(DateTime(timezone=True), nullable=True)
+    cancel_reason = Column(String, nullable=True)
 
 class PurchaseItem(Base):
     __tablename__ = "purchase_items"
@@ -53,6 +55,8 @@ class Sale(Base):
     tax = Column(Numeric(12, 2), nullable=False, default=0)
     total = Column(Numeric(12, 2), nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    cancelled_at = Column(DateTime(timezone=True), nullable=True)
+    cancel_reason = Column(String, nullable=True)
 
 class SaleItem(Base):
     __tablename__ = "sale_items"
