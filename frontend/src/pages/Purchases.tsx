@@ -114,14 +114,19 @@ export default function Purchases() {
 
   const handleCancelPurchase = async () => {
     if (!cancelModalPurchase) return;
+
     if (!cancelReason.trim()) {
       alert("Indica el motivo de la anulación.");
       return;
     }
 
     setCancelling(true);
+
     try {
-      await api.post(`/purchases/${cancelModalPurchase.id}/cancel`, { reason: cancelReason.trim() });
+      await api.post(`/purchases/${cancelModalPurchase.id}/cancel`, {
+        reason: cancelReason.trim()
+      });
+
       closeCancelModal();
       loadPurchaseHistory();
     } catch (error: any) {
@@ -132,43 +137,53 @@ export default function Purchases() {
     }
   };
 
-  const addToCart = (product: Product, quantity: number = 1) => {
-    if (quantity <= 0) return;
-
+  // Agregar producto al carrito
+  const addToCart = (product: Product) => {
     setCart(prev => {
       const exists = prev.find(item => item.id === product.id);
 
       if (exists) {
         return prev.map(item =>
           item.id === product.id
-            ? { ...item, quantity: item.quantity + quantity }
+            ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       }
 
-      return [...prev, { ...product, quantity, input_cost: product.cost }];
+      return [
+        ...prev,
+        {
+          ...product,
+          quantity: 1,
+          input_cost: product.cost
+        }
+      ];
     });
   };
 
+  // Actualizar cantidad desde los controles del carrito
   const updateQuantity = (id: string, delta: number) => {
     setCart(prev => prev.map(item => {
       if (item.id === id) {
         const newQuantity = Math.max(1, item.quantity + delta);
         return { ...item, quantity: newQuantity };
       }
+
       return item;
     }));
   };
 
-  // Actualiza la cantidad directamente desde el catálogo
+  // Actualizar cantidad directamente desde el catálogo
   const updateCatalogQuantity = (product: Product, quantity: number) => {
     setCart(prev => {
+      // Si la cantidad es cero o menor, quitar el producto
       if (quantity <= 0) {
         return prev.filter(item => item.id !== product.id);
       }
 
       const exists = prev.some(item => item.id === product.id);
 
+      // Si ya existe, actualizar su cantidad
       if (exists) {
         return prev.map(item =>
           item.id === product.id
@@ -177,13 +192,23 @@ export default function Purchases() {
         );
       }
 
-      return [...prev, { ...product, quantity, input_cost: product.cost }];
+      // Si no existe, agregarlo al carrito
+      return [
+        ...prev,
+        {
+          ...product,
+          quantity,
+          input_cost: product.cost
+        }
+      ];
     });
   };
 
   const updateInputCost = (id: string, newCost: number) => {
     setCart(prev => prev.map(item =>
-      item.id === id ? { ...item, input_cost: newCost } : item
+      item.id === id
+        ? { ...item, input_cost: newCost }
+        : item
     ));
   };
 
@@ -208,6 +233,7 @@ export default function Purchases() {
     }
 
     setIsSubmitting(true);
+
     try {
       const payload = {
         supplier_id: selectedSupplier,
@@ -225,9 +251,11 @@ export default function Purchases() {
       await api.post('/purchases', payload);
 
       alert("Compra registrada exitosamente. El inventario de la sucursal ha sido actualizado.");
+
       setCart([]);
       setSelectedSupplier('');
       fetchInitialData();
+
     } catch (error: any) {
       console.error("Error registrando compra:", error);
       alert(error.response?.data?.detail || "Error al procesar la compra. Intenta de nuevo.");
@@ -237,7 +265,11 @@ export default function Purchases() {
   };
 
   // Cálculos financieros
-  const subtotal = cart.reduce((sum, item) => sum + (item.input_cost * item.quantity), 0);
+  const subtotal = cart.reduce(
+    (sum, item) => sum + (item.input_cost * item.quantity),
+    0
+  );
+
   const iva = subtotal * 0.15;
   const total = subtotal + iva;
 
@@ -248,10 +280,16 @@ export default function Purchases() {
 
   return (
     <div className="flex flex-col h-full gap-6">
+
+      {/* ENCABEZADO */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Ingreso de Mercadería</h1>
-          <p className="text-sm text-slate-500 mt-1">Registra compras a proveedores y actualiza el stock</p>
+          <h1 className="text-2xl font-bold text-slate-800">
+            Ingreso de Mercadería
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Registra compras a proveedores y actualiza el stock
+          </p>
         </div>
 
         <div className="flex gap-2">
@@ -270,16 +308,29 @@ export default function Purchases() {
           <button
             onClick={() => setView('nueva')}
             className="px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors hover:opacity-90"
-            style={{ background: view === 'nueva' ? '#ED871B' : '#cbd5e1' }}
+            style={{
+              background: view === 'nueva' ? '#ED871B' : '#cbd5e1'
+            }}
           >
             + Nueva compra
           </button>
         </div>
       </div>
 
+      {/* VISTA HISTORIAL */}
       {view === 'historial' ? (
-        <div className="bg-white rounded-xl flex flex-col overflow-hidden shadow-sm" style={{ border: '1px solid #E5E7EB', height: 'calc(100vh - 220px)' }}>
-          <div className="p-3 border-b flex gap-1 flex-wrap" style={{ borderColor: '#E5E7EB' }}>
+        <div
+          className="bg-white rounded-xl flex flex-col overflow-hidden shadow-sm"
+          style={{
+            border: '1px solid #E5E7EB',
+            height: 'calc(100vh - 220px)'
+          }}
+        >
+          {/* FILTRO POR SUCURSAL */}
+          <div
+            className="p-3 border-b flex gap-1 flex-wrap"
+            style={{ borderColor: '#E5E7EB' }}
+          >
             <button
               onClick={() => setHistoryLocationFilter('')}
               className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
@@ -306,10 +357,14 @@ export default function Purchases() {
             ))}
           </div>
 
+          {/* TABLA */}
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b text-slate-500 text-xs uppercase tracking-wider" style={{ borderColor: '#E5E7EB' }}>
+                <tr
+                  className="bg-slate-50 border-b text-slate-500 text-xs uppercase tracking-wider"
+                  style={{ borderColor: '#E5E7EB' }}
+                >
                   <th className="p-4 font-medium">Fecha</th>
                   <th className="p-4 font-medium">Proveedor</th>
                   <th className="p-4 font-medium">Sucursal</th>
@@ -321,61 +376,118 @@ export default function Purchases() {
 
               <tbody className="divide-y" style={{ borderColor: '#f3f4f6' }}>
                 {loadingHistory ? (
-                  <tr><td colSpan={6} className="py-8 text-center text-slate-400">Cargando historial...</td></tr>
-                ) : purchaseHistory.filter((p) => !historyLocationFilter || p.location_id === historyLocationFilter).length === 0 ? (
-                  <tr><td colSpan={6} className="py-8 text-center text-slate-400">No hay compras registradas para este filtro.</td></tr>
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-400">
+                      Cargando historial...
+                    </td>
+                  </tr>
+                ) : purchaseHistory.filter(
+                  p => !historyLocationFilter || p.location_id === historyLocationFilter
+                ).length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-400">
+                      No hay compras registradas para este filtro.
+                    </td>
+                  </tr>
                 ) : (
-                  purchaseHistory.filter((p) => !historyLocationFilter || p.location_id === historyLocationFilter).map((purchase) => (
-                    <tr key={purchase.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4 text-sm text-slate-600">
-                        {new Date(purchase.created_at).toLocaleDateString('es-EC', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td className="p-4 text-sm text-slate-600">{purchase.supplier_name}</td>
-                      <td className="p-4 text-sm text-slate-600">{purchase.location_name || '—'}</td>
-                      <td className="p-4 text-right font-bold text-slate-700">${purchase.total.toFixed(2)}</td>
-                      <td className="p-4 text-center">
-                        {purchase.status === 'CANCELADA' ? (
-                          <span className="text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap" style={{ background: '#F1F5F9', color: '#64748B' }}>
-                            Anulada
-                          </span>
-                        ) : (
-                          <span className="text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap" style={{ background: '#F0FDF4', color: '#16a34a' }}>
-                            Completada
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-4 text-center whitespace-nowrap">
-                        {purchase.status !== 'CANCELADA' && (
-                          <button onClick={() => openCancelModal(purchase)} className="text-red-500 hover:text-red-700 text-xs font-medium">Anular</button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                  purchaseHistory
+                    .filter(p => !historyLocationFilter || p.location_id === historyLocationFilter)
+                    .map(purchase => (
+                      <tr
+                        key={purchase.id}
+                        className="hover:bg-slate-50 transition-colors"
+                      >
+                        <td className="p-4 text-sm text-slate-600">
+                          {new Date(purchase.created_at).toLocaleDateString('es-EC', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+
+                        <td className="p-4 text-sm text-slate-600">
+                          {purchase.supplier_name}
+                        </td>
+
+                        <td className="p-4 text-sm text-slate-600">
+                          {purchase.location_name || '—'}
+                        </td>
+
+                        <td className="p-4 text-right font-bold text-slate-700">
+                          ${purchase.total.toFixed(2)}
+                        </td>
+
+                        <td className="p-4 text-center">
+                          {purchase.status === 'CANCELADA' ? (
+                            <span
+                              className="text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap"
+                              style={{
+                                background: '#F1F5F9',
+                                color: '#64748B'
+                              }}
+                            >
+                              Anulada
+                            </span>
+                          ) : (
+                            <span
+                              className="text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap"
+                              style={{
+                                background: '#F0FDF4',
+                                color: '#16a34a'
+                              }}
+                            >
+                              Completada
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="p-4 text-center whitespace-nowrap">
+                          {purchase.status !== 'CANCELADA' && (
+                            <button
+                              onClick={() => openCancelModal(purchase)}
+                              className="text-red-500 hover:text-red-700 text-xs font-medium"
+                            >
+                              Anular
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
                 )}
               </tbody>
             </table>
           </div>
         </div>
       ) : (
+
+        /* VISTA NUEVA COMPRA */
         <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-180px)]">
 
-          {/* COLUMNA IZQUIERDA: Catálogo y Buscador */}
+          {/* COLUMNA IZQUIERDA: CATÁLOGO */}
           <div className="w-full lg:w-7/12 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+
+            {/* BUSCADOR */}
             <div className="p-4 border-b border-slate-100">
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">🔍</span>
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+                  🔍
+                </span>
+
                 <input
                   type="text"
                   placeholder="Buscar producto por nombre o SKU..."
                   className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:outline-none text-sm"
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={e => setSearchTerm(e.target.value)}
                 />
               </div>
             </div>
 
-            {/* CATÁLOGO CON SELECTOR DE CANTIDAD */}
+            {/* LISTADO DE PRODUCTOS */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
+
               {filteredProducts.map(product => {
                 const cartItem = cart.find(item => item.id === product.id);
                 const quantity = cartItem?.quantity || 0;
@@ -383,10 +495,12 @@ export default function Purchases() {
                 return (
                   <div
                     key={product.id}
-                    className="flex justify-between items-center gap-3 p-3 border border-slate-100 rounded-xl hover:border-orange-300 hover:shadow-sm transition-all"
+                    className="flex justify-between items-center p-3 border border-slate-100 rounded-xl hover:border-orange-300 hover:shadow-sm transition-all group"
                   >
+
+                    {/* INFORMACIÓN DEL PRODUCTO */}
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-700">
+                      <div className="font-bold text-slate-700 group-hover:text-orange-600 transition-colors">
                         {product.name}
                       </div>
 
@@ -396,42 +510,58 @@ export default function Purchases() {
 
                       <div className="text-sm font-bold text-slate-600 mt-1">
                         ${Number(product.cost).toFixed(2)}
-                      </div>
-
-                      <div className="text-[10px] uppercase text-slate-400">
-                        Costo Ref.
+                        <span className="text-[10px] uppercase text-slate-400 ml-2">
+                          Costo Ref.
+                        </span>
                       </div>
                     </div>
 
-                    {/* CONTROL DE CANTIDAD */}
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    {/* CONTROLES DE CANTIDAD */}
+                    <div className="flex items-center gap-2 ml-3">
+
+                      {/* RESTAR */}
                       <button
                         type="button"
                         onClick={() => updateCatalogQuantity(product, quantity - 1)}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-orange-50 hover:border-orange-300 hover:text-orange-600 transition-colors font-bold"
+                        disabled={quantity === 0}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-600 font-bold hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                       >
                         −
                       </button>
 
+                      {/* INPUT DE CANTIDAD */}
                       <input
                         type="number"
                         min="0"
                         step="1"
-                        value={quantity}
-                        onChange={(e) => {
+                        value={quantity === 0 ? '' : quantity}
+                        placeholder="0"
+                        onChange={e => {
                           const value = e.target.value;
-                          updateCatalogQuantity(product, value === '' ? 0 : Math.max(0, parseInt(value) || 0));
+
+                          if (value === '') {
+                            updateCatalogQuantity(product, 0);
+                            return;
+                          }
+
+                          const number = parseInt(value, 10);
+
+                          if (!isNaN(number) && number >= 0) {
+                            updateCatalogQuantity(product, number);
+                          }
                         }}
                         className="w-14 h-8 text-center border border-slate-200 rounded-lg text-sm font-bold text-slate-700 focus:outline-none focus:border-orange-500"
                       />
 
+                      {/* SUMAR */}
                       <button
                         type="button"
                         onClick={() => updateCatalogQuantity(product, quantity + 1)}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-orange-50 hover:border-orange-300 hover:text-orange-600 transition-colors font-bold"
+                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-orange-500 text-white font-bold hover:bg-orange-600 transition-colors"
                       >
                         +
                       </button>
+
                     </div>
                   </div>
                 );
@@ -442,45 +572,93 @@ export default function Purchases() {
                   No se encontraron productos.
                 </div>
               )}
+
             </div>
           </div>
 
-          {/* COLUMNA DERECHA: Carrito y Confirmación */}
+          {/* COLUMNA DERECHA: CARRITO Y CONFIRMACIÓN */}
           <div className="w-full lg:w-5/12 flex flex-col gap-4">
 
-            {/* Detalles del Carrito */}
+            {/* DETALLES DEL CARRITO */}
             <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
+
               <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <h3 className="font-bold text-slate-700">Detalle de Ingreso</h3>
-                <span className="text-xs font-bold text-slate-400 bg-slate-200 px-2 py-1 rounded-md">{cart.length} items</span>
+                <h3 className="font-bold text-slate-700">
+                  Detalle de Ingreso
+                </h3>
+
+                <span className="text-xs font-bold text-slate-400 bg-slate-200 px-2 py-1 rounded-md">
+                  {cart.length} items
+                </span>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
                 {cart.map(item => (
-                  <div key={item.id} className="flex flex-col gap-2 pb-4 border-b border-slate-100 last:border-0 last:pb-0">
+                  <div
+                    key={item.id}
+                    className="flex flex-col gap-2 pb-4 border-b border-slate-100 last:border-0 last:pb-0"
+                  >
+
                     <div className="flex justify-between items-start">
-                      <span className="font-medium text-sm text-slate-700 leading-tight pr-4">{item.name}</span>
-                      <button onClick={() => removeFromCart(item.id)} className="text-red-400 hover:text-red-600 font-bold">&times;</button>
+                      <span className="font-medium text-sm text-slate-700 leading-tight pr-4">
+                        {item.name}
+                      </span>
+
+                      <button
+                        onClick={() => removeFromCart(item.id)}
+                        className="text-red-400 hover:text-red-600 font-bold"
+                      >
+                        &times;
+                      </button>
                     </div>
 
                     <div className="flex justify-between items-center mt-1">
-                      {/* Controles de Cantidad */}
+
+                      {/* CONTROLES DE CANTIDAD */}
                       <div className="flex items-center border border-slate-200 rounded-lg">
-                        <button onClick={() => updateQuantity(item.id, -1)} className="px-3 py-1 text-slate-500 hover:bg-slate-50 border-r border-slate-200 font-bold">−</button>
-                        <span className="px-4 py-1 text-sm font-bold text-slate-700 min-w-[3rem] text-center">{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.id, 1)} className="px-3 py-1 text-slate-500 hover:bg-slate-50 border-l border-slate-200 font-bold">+</button>
+
+                        <button
+                          onClick={() => updateQuantity(item.id, -1)}
+                          className="px-3 py-1 text-slate-500 hover:bg-slate-50 border-r border-slate-200 font-bold"
+                        >
+                          −
+                        </button>
+
+                        <span className="px-4 py-1 text-sm font-bold text-slate-700 min-w-[3rem] text-center">
+                          {item.quantity}
+                        </span>
+
+                        <button
+                          onClick={() => updateQuantity(item.id, 1)}
+                          className="px-3 py-1 text-slate-500 hover:bg-slate-50 border-l border-slate-200 font-bold"
+                        >
+                          +
+                        </button>
+
                       </div>
 
-                      {/* Input de Costo editable */}
+                      {/* COSTO EDITABLE */}
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400">Costo c/u:</span>
+                        <span className="text-xs text-slate-400">
+                          Costo c/u:
+                        </span>
+
                         <div className="relative w-20">
-                          <span className="absolute inset-y-0 left-0 pl-2 flex items-center text-slate-500 text-xs">$</span>
+                          <span className="absolute inset-y-0 left-0 pl-2 flex items-center text-slate-500 text-xs">
+                            $
+                          </span>
+
                           <input
                             type="number"
                             step="0.01"
                             value={item.input_cost}
-                            onChange={(e) => updateInputCost(item.id, parseFloat(e.target.value) || 0)}
+                            onChange={e =>
+                              updateInputCost(
+                                item.id,
+                                parseFloat(e.target.value) || 0
+                              )
+                            }
                             className="w-full pl-5 pr-2 py-1 border border-slate-300 rounded text-sm text-right font-bold focus:outline-none focus:border-orange-500"
                           />
                         </div>
@@ -488,8 +666,12 @@ export default function Purchases() {
                     </div>
 
                     <div className="text-right text-xs text-slate-500 mt-1">
-                      Subtotal item: <span className="font-bold text-slate-700">${(item.quantity * item.input_cost).toFixed(2)}</span>
+                      Subtotal item:{' '}
+                      <span className="font-bold text-slate-700">
+                        ${(item.quantity * item.input_cost).toFixed(2)}
+                      </span>
                     </div>
+
                   </div>
                 ))}
 
@@ -498,40 +680,62 @@ export default function Purchases() {
                     Agrega productos desde el catálogo
                   </div>
                 )}
+
               </div>
             </div>
 
-            {/* Panel de Totales y Proveedor */}
+            {/* PANEL DE TOTALES Y PROVEEDOR */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-4">
+
+              {/* SUCURSAL */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Sucursal que recibe</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  Sucursal que recibe
+                </label>
+
                 <select
                   value={selectedLocation}
-                  onChange={(e) => setSelectedLocation(e.target.value)}
+                  onChange={e => setSelectedLocation(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 text-sm"
                 >
-                  <option value="">Seleccione una sucursal...</option>
+                  <option value="">
+                    Seleccione una sucursal...
+                  </option>
+
                   {locations.map(l => (
-                    <option key={l.id} value={l.id}>{l.name}</option>
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
                   ))}
                 </select>
               </div>
 
+              {/* PROVEEDOR */}
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Proveedor</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  Proveedor
+                </label>
+
                 <select
                   value={selectedSupplier}
-                  onChange={(e) => setSelectedSupplier(e.target.value)}
+                  onChange={e => setSelectedSupplier(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 text-sm"
                 >
-                  <option value="">Seleccione un proveedor...</option>
+                  <option value="">
+                    Seleccione un proveedor...
+                  </option>
+
                   {suppliers.map(s => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.document_number})</option>
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.document_number})
+                    </option>
                   ))}
                 </select>
               </div>
 
+              {/* TOTALES */}
               <div className="pt-3 border-t border-slate-100 space-y-2">
+
                 <div className="flex justify-between text-sm text-slate-500">
                   <span>Subtotal</span>
                   <span>${subtotal.toFixed(2)}</span>
@@ -543,50 +747,87 @@ export default function Purchases() {
                 </div>
 
                 <div className="flex justify-between items-end pt-2">
-                  <span className="font-bold text-slate-800">TOTAL</span>
-                  <span className="text-2xl font-black text-orange-600">${total.toFixed(2)}</span>
+                  <span className="font-bold text-slate-800">
+                    TOTAL
+                  </span>
+
+                  <span className="text-2xl font-black text-orange-600">
+                    ${total.toFixed(2)}
+                  </span>
                 </div>
+
               </div>
 
+              {/* CONFIRMAR COMPRA */}
               <button
                 onClick={handleConfirmPurchase}
-                disabled={cart.length === 0 || !selectedSupplier || !selectedLocation || isSubmitting}
+                disabled={
+                  cart.length === 0 ||
+                  !selectedSupplier ||
+                  !selectedLocation ||
+                  isSubmitting
+                }
                 className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors shadow-sm mt-2"
               >
                 {isSubmitting ? 'Procesando...' : 'Confirmar Ingreso'}
               </button>
+
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal: anular una compra existente */}
+      {/* MODAL: ANULAR COMPRA */}
       {cancelModalPurchase && (
-        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={closeCancelModal}>
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
+          onClick={closeCancelModal}
+        >
+          <div
+            className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+
             <div>
-              <h3 className="font-bold text-lg text-slate-800">Anular compra</h3>
+              <h3 className="font-bold text-lg text-slate-800">
+                Anular compra
+              </h3>
+
               <p className="text-sm text-slate-500">
-                {cancelModalPurchase.supplier_name} — Total: <span className="font-bold">${cancelModalPurchase.total.toFixed(2)}</span>
+                {cancelModalPurchase.supplier_name} — Total:{' '}
+                <span className="font-bold">
+                  ${cancelModalPurchase.total.toFixed(2)}
+                </span>
               </p>
+
               <p className="text-xs mt-2" style={{ color: '#D97706' }}>
                 ⚠️ El stock que esta compra había sumado se descontará de nuevo de la sucursal. Esta acción queda registrada y no se puede deshacer.
               </p>
             </div>
 
+            {/* MOTIVO */}
             <div>
-              <label className="text-xs text-slate-500 block mb-1">Motivo de la anulación</label>
+              <label className="text-xs text-slate-500 block mb-1">
+                Motivo de la anulación
+              </label>
+
               <textarea
                 value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
+                onChange={e => setCancelReason(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg text-sm outline-none border focus:border-orange-500"
                 placeholder="Ej. Factura duplicada, proveedor equivocado..."
                 rows={3}
               />
             </div>
 
+            {/* BOTONES */}
             <div className="flex gap-2 pt-2">
-              <button onClick={closeCancelModal} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-slate-600" style={{ border: '1px solid #E5E7EB' }}>
+
+              <button
+                onClick={closeCancelModal}
+                className="flex-1 py-2.5 rounded-lg text-sm font-medium text-slate-600"
+                style={{ border: '1px solid #E5E7EB' }}
+              >
                 Cancelar
               </button>
 
@@ -598,10 +839,12 @@ export default function Purchases() {
               >
                 {cancelling ? 'Anulando...' : 'Anular compra'}
               </button>
+
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }
