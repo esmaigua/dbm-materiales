@@ -24,7 +24,20 @@ interface TransferItem {
   quantity: number;
 }
 
-export default function Transfers() {
+interface TransferSuggestion {
+  productId: string;
+  productName: string;
+  originLocationId: string;
+  destinationLocationId: string;
+  quantity: number;
+}
+
+interface TransfersProps {
+  suggestion?: TransferSuggestion | null;
+  onConsumeSuggestion?: () => void;
+}
+
+export default function Transfers({ suggestion, onConsumeSuggestion }: TransfersProps) {
   const [locations, setLocations] = useState<Location[]>([]);
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
@@ -43,6 +56,38 @@ export default function Transfers() {
     if (origin) loadOriginStock(origin);
     else setOriginStock([]);
   }, [origin]);
+
+  // Si llegamos aquí desde el aviso de "Pedir traslado" en Inventario,
+  // pre-llenamos origen/destino. El producto se agrega al carrito más abajo,
+  // una vez que carga el stock de la sucursal de origen.
+  useEffect(() => {
+    if (suggestion) {
+      setOrigin(suggestion.originLocationId);
+      setDestination(suggestion.destinationLocationId);
+    }
+  }, [suggestion]);
+
+  useEffect(() => {
+    if (!suggestion || origin !== suggestion.originLocationId || originStock.length === 0) return;
+    const match = originStock.find((s) => s.product_id === suggestion.productId);
+    if (match) {
+      setCart((prev) => {
+        if (prev.find((i) => i.product_id === match.product_id)) return prev;
+        return [
+          ...prev,
+          {
+            product_id: match.product_id,
+            name: match.name,
+            sku: match.sku,
+            disponible: match.quantity,
+            quantity: Math.max(1, Math.min(suggestion.quantity, match.quantity)),
+          },
+        ];
+      });
+    }
+    onConsumeSuggestion?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [originStock, suggestion]);
 
   const loadLocations = async () => {
     try {

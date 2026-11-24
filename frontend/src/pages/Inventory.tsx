@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 interface Location {
   id: string;
@@ -36,11 +37,39 @@ const estadoBadge = (estado: string) => {
   );
 };
 
-interface InventoryProps {
-  onNavigate?: (page: string) => void;
+interface OtherLocationStock {
+  location_id: string;
+  location_name: string;
+  quantity: number;
 }
 
-export default function Inventory({ onNavigate }: InventoryProps) {
+interface StockRequestItem {
+  id: string;
+  product_id: string;
+  product_name: string;
+  product_sku: string | null;
+  location_id: string;
+  location_name: string;
+  quantity_needed: number;
+  created_at: string;
+  other_locations_stock: OtherLocationStock[];
+}
+
+interface TransferSuggestion {
+  productId: string;
+  productName: string;
+  originLocationId: string;
+  destinationLocationId: string;
+  quantity: number;
+}
+
+interface InventoryProps {
+  onNavigate?: (page: string) => void;
+  onRequestTransfer?: (suggestion: TransferSuggestion) => void;
+}
+
+export default function Inventory({ onNavigate, onRequestTransfer }: InventoryProps) {
+  const { isAdmin } = useAuth();
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationFilter, setLocationFilter] = useState<string>(''); // '' = todas las sucursales
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
@@ -48,6 +77,10 @@ export default function Inventory({ onNavigate }: InventoryProps) {
 
   const [search, setSearch] = useState('');
   const [filterEstado, setFilterEstado] = useState('todos');
+
+  // Solicitudes de reposición pendientes (generadas al forzar ventas sin stock)
+  const [stockRequests, setStockRequests] = useState<StockRequestItem[]>([]);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   // Modal de ajuste manual
   const [adjustItem, setAdjustItem] = useState<StockItem | null>(null);
@@ -58,11 +91,34 @@ export default function Inventory({ onNavigate }: InventoryProps) {
 
   useEffect(() => {
     loadLocations();
+    loadStockRequests();
   }, []);
 
   useEffect(() => {
     loadStock();
   }, [locationFilter]);
+
+  const loadStockRequests = async () => {
+    try {
+      const res = await api.get('/stock-requests', { params: { status: 'PENDIENTE' } });
+      setStockRequests(res.data);
+    } catch (error) {
+      console.error('Error cargando solicitudes de reposición:', error);
+    }
+  };
+
+  const handleResolveRequest = async (id: string) => {
+    setResolvingId(id);
+    try {
+      await api.put(`/stock-requests/${id}/resolve`, {});
+      setStockRequests((prev) => prev.filter((r) => r.id !== id));
+    } catch (error) {
+      console.error('Error al resolver solicitud:', error);
+      alert('No se pudo marcar como atendida.');
+    } finally {
+      setResolvingId(null);
+    }
+  };
 
   const loadLocations = async () => {
     try {
@@ -161,6 +217,69 @@ export default function Inventory({ onNavigate }: InventoryProps) {
         </button>
       </div>
 
+      {/* Solicitudes de reposición pendientes */}
+      {stockRequests.length > 0 && (
+        <div className="bg-white rounded-xl overflow-hidden" style={{ border: '1px solid #FBBF24' }}>
+          <div className="px-4 py-3 flex items-center gap-2" style={{ background: '#FFFBEB' }}>
+            <span className="text-lg">⚠️</span>
+            <h3 className="font-display font-semibold text-sm" style={{ color: '#92400E' }}>
+              {stockRequests.length} solicitud{stockRequests.length !== 1 ? 'es' : ''} de reposición pendiente{stockRequests.length !== 1 ? 's' : ''}
+            </h3>
+          </div>
+          <div className="divide-y divide-amber-50">
+            {stockRequests.map((r) => {
+              // Si hay stock en otra sucursal, sugerimos la que tiene más disponible
+              const bestOther = [...r.other_locations_stock].sort((a, b) => b.quantity - a.quantity)[0];
+              return (
+                <div key={r.id} className="p-3 flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="text-sm">
+                      <span className="font-medium text-slate-800">{r.product_name}</span>
+                      <span className="text-slate-500"> — se vendió sin stock en <span className="font-medium">{r.location_name}</span>. Faltan <span className="font-bold text-red-600">{r.quantity_needed}</span> unidades.</span>
+                    </div>
+                    <button
+                      onClick={() => handleResolveRequest(r.id)}
+                      disabled={resolvingId === r.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50 whitespace-nowrap"
+                      style={{ background: '#1D2647' }}
+                    >
+                      {resolvingId === r.id ? 'Guardando...' : 'Ya la atendí'}
+                    </button>
+                  </div>
+
+                  {bestOther ? (
+                    <div className="flex items-center justify-between gap-3 flex-wrap pl-0 sm:pl-1">
+                      <div className="text-xs text-slate-500">
+                        ✅ Hay <span className="font-bold text-slate-700">{bestOther.quantity}</span> disponibles en <span className="font-medium">{bestOther.location_name}</span>.
+                      </div>
+                      <button
+                        onClick={() =>
+                          onRequestTransfer?.({
+                            productId: r.product_id,
+                            productName: r.product_name,
+                            originLocationId: bestOther.location_id,
+                            destinationLocationId: r.location_id,
+                            quantity: Math.min(r.quantity_needed, bestOther.quantity),
+                          })
+                        }
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+                        style={{ background: '#FFFBEB', color: '#92400E', border: '1px solid #FBBF24' }}
+                      >
+                        🔁 Pedir traslado desde {bestOther.location_name}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-xs pl-0 sm:pl-1" style={{ color: '#991B1B' }}>
+                      ⚠️ No hay stock de este producto en ninguna otra sucursal. Hay que comprar al proveedor.
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {[
@@ -226,7 +345,7 @@ export default function Inventory({ onNavigate }: InventoryProps) {
         <table className="w-full text-sm">
           <thead>
             <tr style={{ background: '#F8F9FA', borderBottom: '1px solid #E5E7EB' }}>
-              {['SKU', 'Producto', ...(locationFilter ? [] : ['Sucursal']), 'Stock actual', 'Stock mín.', 'Estado', 'Acciones'].map((h) => (
+              {['SKU', 'Producto', ...(locationFilter ? [] : ['Sucursal']), 'Stock actual', 'Stock mín.', 'Estado', ...(isAdmin ? ['Acciones'] : [])].map((h) => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider" style={{ fontFamily: 'Outfit' }}>
                   {h}
                 </th>
@@ -251,15 +370,17 @@ export default function Inventory({ onNavigate }: InventoryProps) {
                 </td>
                 <td className="px-4 py-3 font-mono text-xs text-slate-500">{p.stock_minimo}</td>
                 <td className="px-4 py-3">{estadoBadge(p.estado)}</td>
-                <td className="px-4 py-3">
-                  <button
-                    onClick={() => openAdjustModal(p)}
-                    className="px-2.5 py-1 rounded text-xs font-medium hover:opacity-90 transition-opacity text-white"
-                    style={{ background: '#1D2647' }}
-                  >
-                    Ajustar
-                  </button>
-                </td>
+                {isAdmin && (
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => openAdjustModal(p)}
+                      className="px-2.5 py-1 rounded text-xs font-medium hover:opacity-90 transition-opacity text-white"
+                      style={{ background: '#1D2647' }}
+                    >
+                      Ajustar
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -291,13 +412,15 @@ export default function Inventory({ onNavigate }: InventoryProps) {
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-slate-500">Stock: <span className="font-mono font-bold text-slate-800">{p.quantity}</span> (mín. {p.stock_minimo})</span>
-              <button
-                onClick={() => openAdjustModal(p)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-                style={{ background: '#1D2647' }}
-              >
-                Ajustar
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => openAdjustModal(p)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-white"
+                  style={{ background: '#1D2647' }}
+                >
+                  Ajustar
+                </button>
+              )}
             </div>
           </div>
         ))}

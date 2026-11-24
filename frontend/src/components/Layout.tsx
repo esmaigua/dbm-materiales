@@ -10,12 +10,16 @@ const navItems = [
   { id: 'movimientos', icon: '🔄', label: 'Movimientos' },
   { id: 'ventas', icon: '🛒', label: 'Ventas' },
   { id: 'proformas', icon: '📋', label: 'Proformas' },
-  { id: 'compras', icon: '🚚', label: 'Compras' },
+  { id: 'compras', icon: '🚚', label: 'Compras', adminOnly: true },
   { id: 'clientes', icon: '👥', label: 'Clientes' },
-  { id: 'proveedores', icon: '🏭', label: 'Proveedores' },
-  { id: 'reportes', icon: '📊', label: 'Reportes' },
-  { id: 'asistente', icon: '🤖', label: 'Asistente DBM' },
+  { id: 'proveedores', icon: '🏭', label: 'Proveedores', adminOnly: true },
+  { id: 'reportes', icon: '📊', label: 'Reportes', adminOnly: true },
+  { id: 'asistente', icon: '🤖', label: 'Asistente DBM', adminOnly: true },
 ];
+
+// Páginas que un Vendedor no debe poder abrir (ni por el menú, ni por un
+// botón de atajo en otra pantalla). Se usa también en App.tsx como respaldo.
+export const ADMIN_ONLY_PAGES = navItems.filter((i) => i.adminOnly).map((i) => i.id);
 
 const bottomItems = [
   { id: 'configuracion', icon: '⚙️', label: 'Configuración' },
@@ -78,7 +82,7 @@ export default function Layout({ children, activePage, onNavigate, onLogout }: L
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-0.5">
-          {navItems.map((item) => {
+          {navItems.filter((item) => !item.adminOnly || role === 'ADMIN').map((item) => {
             const isActive = activePage === item.id;
             return (
               <button

@@ -245,6 +245,28 @@ def list_stock_requests(status: str = "PENDIENTE", db: Session = Depends(get_db)
 
     result = []
     for req, product, location in query.order_by(StockRequest.created_at.desc()).all():
+        # Buscamos si hay stock disponible de este producto en OTRAS sucursales,
+        # para poder sugerir un traslado en vez de obligar a comprar al proveedor.
+        other_stock_rows = (
+            db.query(InventoryStock, Location)
+            .join(Location, InventoryStock.location_id == Location.id)
+            .filter(
+                InventoryStock.product_id == product.id,
+                InventoryStock.location_id != location.id,
+                InventoryStock.quantity > 0,
+                Location.is_active == True,  # noqa: E712
+            )
+            .all()
+        )
+        other_locations_stock = [
+            {
+                "location_id": loc.id,
+                "location_name": loc.name,
+                "quantity": float(stock.quantity),
+            }
+            for stock, loc in other_stock_rows
+        ]
+
         result.append({
             "id": req.id,
             "product_id": product.id,
@@ -256,6 +278,7 @@ def list_stock_requests(status: str = "PENDIENTE", db: Session = Depends(get_db)
             "status": req.status,
             "notes": req.notes,
             "created_at": req.created_at,
+            "other_locations_stock": other_locations_stock,
         })
     return result
 

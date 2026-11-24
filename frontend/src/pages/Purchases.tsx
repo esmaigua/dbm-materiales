@@ -26,7 +26,22 @@ interface CartItem extends Product {
   input_cost: number; // Permite modificar el costo al que llega en esta factura específica
 }
 
+interface PurchaseHistoryItem {
+  id: string;
+  created_at: string;
+  supplier_name: string;
+  location_id: string | null;
+  location_name: string | null;
+  subtotal: number;
+  tax: number;
+  total: number;
+  status: string;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+}
+
 export default function Purchases() {
+  const [view, setView] = useState<'nueva' | 'historial'>('nueva');
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -38,9 +53,24 @@ export default function Purchases() {
   const [selectedLocation, setSelectedLocation] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Historial de compras
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseHistoryItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  // Para ver claramente qué compras fueron a cada local ('' = todas)
+  const [historyLocationFilter, setHistoryLocationFilter] = useState<string>('');
+
+  // Modal para anular una compra existente (revierte el stock)
+  const [cancelModalPurchase, setCancelModalPurchase] = useState<PurchaseHistoryItem | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+
   useEffect(() => {
     fetchInitialData();
   }, []);
+
+  useEffect(() => {
+    if (view === 'historial') loadPurchaseHistory();
+  }, [view]);
 
   const fetchInitialData = async () => {
     try {
@@ -59,6 +89,46 @@ export default function Purchases() {
       setSelectedLocation(prev => prev || activeLocations[0]?.id || '');
     } catch (error) {
       console.error("Error cargando datos iniciales:", error);
+      alert("No se pudieron cargar los productos, proveedores o sucursales. Revisa tu conexión e intenta de nuevo.");
+    }
+  };
+
+  const loadPurchaseHistory = async () => {
+    try {
+      setLoadingHistory(true);
+      const res = await api.get('/purchases');
+      setPurchaseHistory(res.data);
+    } catch (error) {
+      console.error("Error cargando historial de compras:", error);
+      alert("No se pudo cargar el historial de compras.");
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const openCancelModal = (purchase: PurchaseHistoryItem) => {
+    setCancelModalPurchase(purchase);
+    setCancelReason('');
+  };
+
+  const closeCancelModal = () => setCancelModalPurchase(null);
+
+  const handleCancelPurchase = async () => {
+    if (!cancelModalPurchase) return;
+    if (!cancelReason.trim()) {
+      alert("Indica el motivo de la anulación.");
+      return;
+    }
+    setCancelling(true);
+    try {
+      await api.post(`/purchases/${cancelModalPurchase.id}/cancel`, { reason: cancelReason.trim() });
+      closeCancelModal();
+      loadPurchaseHistory();
+    } catch (error: any) {
+      alert(error.response?.data?.detail || "Error al anular la compra.");
+      console.error(error);
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -130,9 +200,9 @@ export default function Purchases() {
       setCart([]);
       setSelectedSupplier('');
       fetchInitialData(); // Recargamos para ver el nuevo stock
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error registrando compra:", error);
-      alert("Error al procesar la compra. Verifica la consola.");
+      alert(error.response?.data?.detail || "Error al procesar la compra. Intenta de nuevo.");
     } finally {
       setIsSubmitting(false);
     }
@@ -150,11 +220,111 @@ export default function Purchases() {
 
   return (
     <div className="flex flex-col h-full gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Ingreso de Mercadería</h1>
-        <p className="text-sm text-slate-500 mt-1">Registra compras a proveedores y actualiza el stock</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Ingreso de Mercadería</h1>
+          <p className="text-sm text-slate-500 mt-1">Registra compras a proveedores y actualiza el stock</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setView('historial')}
+            className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+            style={{
+              background: view === 'historial' ? '#1D2647' : '#fff',
+              color: view === 'historial' ? '#fff' : '#374151',
+              border: '1px solid #E5E7EB',
+            }}
+          >
+            Historial de compras
+          </button>
+          <button
+            onClick={() => setView('nueva')}
+            className="px-4 py-2 rounded-lg text-white text-sm font-semibold transition-colors hover:opacity-90"
+            style={{ background: view === 'nueva' ? '#ED871B' : '#cbd5e1' }}
+          >
+            + Nueva compra
+          </button>
+        </div>
       </div>
 
+      {view === 'historial' ? (
+        <div className="bg-white rounded-xl flex flex-col overflow-hidden shadow-sm" style={{ border: '1px solid #E5E7EB', height: 'calc(100vh - 220px)' }}>
+          {/* Filtro por sucursal: para ver de un vistazo qué compras fueron a cada local */}
+          <div className="p-3 border-b flex gap-1 flex-wrap" style={{ borderColor: '#E5E7EB' }}>
+            <button
+              onClick={() => setHistoryLocationFilter('')}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              style={{
+                background: historyLocationFilter === '' ? '#1D2647' : '#F0F2F5',
+                color: historyLocationFilter === '' ? '#fff' : '#64748B',
+              }}
+            >
+              Todas las sucursales
+            </button>
+            {locations.map((l) => (
+              <button
+                key={l.id}
+                onClick={() => setHistoryLocationFilter(l.id)}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style={{
+                  background: historyLocationFilter === l.id ? '#1D2647' : '#F0F2F5',
+                  color: historyLocationFilter === l.id ? '#fff' : '#64748B',
+                }}
+              >
+                {l.name}
+              </button>
+            ))}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b text-slate-500 text-xs uppercase tracking-wider" style={{ borderColor: '#E5E7EB' }}>
+                  <th className="p-4 font-medium">Fecha</th>
+                  <th className="p-4 font-medium">Proveedor</th>
+                  <th className="p-4 font-medium">Sucursal</th>
+                  <th className="p-4 font-medium text-right">Total</th>
+                  <th className="p-4 font-medium text-center">Estado</th>
+                  <th className="p-4 font-medium text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y" style={{ borderColor: '#f3f4f6' }}>
+                {loadingHistory ? (
+                  <tr><td colSpan={6} className="py-8 text-center text-slate-400">Cargando historial...</td></tr>
+                ) : purchaseHistory.filter((p) => !historyLocationFilter || p.location_id === historyLocationFilter).length === 0 ? (
+                  <tr><td colSpan={6} className="py-8 text-center text-slate-400">No hay compras registradas para este filtro.</td></tr>
+                ) : (
+                  purchaseHistory.filter((p) => !historyLocationFilter || p.location_id === historyLocationFilter).map((purchase) => (
+                    <tr key={purchase.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-4 text-sm text-slate-600">
+                        {new Date(purchase.created_at).toLocaleDateString('es-EC', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="p-4 text-sm text-slate-600">{purchase.supplier_name}</td>
+                      <td className="p-4 text-sm text-slate-600">{purchase.location_name || '—'}</td>
+                      <td className="p-4 text-right font-bold text-slate-700">${purchase.total.toFixed(2)}</td>
+                      <td className="p-4 text-center">
+                        {purchase.status === 'CANCELADA' ? (
+                          <span className="text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap" style={{ background: '#F1F5F9', color: '#64748B' }}>
+                            Anulada
+                          </span>
+                        ) : (
+                          <span className="text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap" style={{ background: '#F0FDF4', color: '#16a34a' }}>
+                            Completada
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-4 text-center whitespace-nowrap">
+                        {purchase.status !== 'CANCELADA' && (
+                          <button onClick={() => openCancelModal(purchase)} className="text-red-500 hover:text-red-700 text-xs font-medium">Anular</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
       <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-180px)]">
         
         {/* COLUMNA IZQUIERDA: Catálogo y Buscador */}
@@ -305,6 +475,47 @@ export default function Purchases() {
 
         </div>
       </div>
+      )}
+
+      {/* Modal: anular una compra existente (revierte el stock) */}
+      {cancelModalPurchase && (
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={closeCancelModal}>
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-bold text-lg text-slate-800">Anular compra</h3>
+              <p className="text-sm text-slate-500">
+                {cancelModalPurchase.supplier_name} — Total: <span className="font-bold">${cancelModalPurchase.total.toFixed(2)}</span>
+              </p>
+              <p className="text-xs mt-2" style={{ color: '#D97706' }}>
+                ⚠️ El stock que esta compra había sumado se descontará de nuevo de la sucursal. Esta acción queda registrada y no se puede deshacer.
+              </p>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Motivo de la anulación</label>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none border focus:border-orange-500"
+                placeholder="Ej. Factura duplicada, proveedor equivocado..."
+                rows={3}
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button onClick={closeCancelModal} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-slate-600" style={{ border: '1px solid #E5E7EB' }}>
+                Cancelar
+              </button>
+              <button
+                onClick={handleCancelPurchase}
+                disabled={cancelling}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: '#DC2626' }}
+              >
+                {cancelling ? 'Anulando...' : 'Anular compra'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
